@@ -28,8 +28,9 @@ OCRはTesseract英語モデルを同梱。Oと0、QとGなどの誤認識は券�
 
 ## GitHub Pagesへ公開
 
-予定アカウント：`jgm8-8`。仮のリポジトリ名：`ouboken-pwa`。
-予定URL：`https://jgm8-8.github.io/ouboken-pwa/`（まだ公開されていません）。
+公開リポジトリ：`jgm8-8/ouboken-pwa`。
+公開URL：`https://jgm8-8.github.io/ouboken-pwa/`。
+2026-10-05にGitHub Actionsから公開し、URLでの起動・OCR・オフライン用データの準備を確認しました。
 
 ### ビルド済みファイルを公開する場合
 
