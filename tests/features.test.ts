@@ -16,6 +16,12 @@ test('記録済みから戻すと記録時の回答を編集でき、履歴は�
 test('要確認への変更は確認を解除し、状態変更だけでは未確認コードを承認できない',()=>{
  const s=emptyState(),t=ticket('one');s.tickets=[t];setStatus(s,t.id,{state:'review'});assert.equal(t.approved,0);assert.throws(()=>setStatus(s,t.id,{state:'ready'}),/照合/);assert.throws(()=>setStatus(s,t.id,{state:'prepared'}),/もう一度/);
 });
+test('コードだけの応募記録を戻しても元の個別文章を消さない',()=>{
+ const s=emptyState(),t=ticket('one');s.tickets=[t];t.answers={c_q29:'元の個別文章'};t.character=schema.characters[0];const body={mode:'codes' as const};recordExport(s,body,JSON.stringify(logicalPlan(s,body)));setStatus(s,t.id,{state:'done'});setStatus(s,t.id,{state:'ready'});assert.equal(t.answers.c_q29,'元の個別文章');assert.equal(t.character,schema.characters[0]);
+});
+test('応募済みから出力済みへ戻す場合も記録時の回答を引き継ぐ',()=>{
+ const s=emptyState(),t=ticket('one');s.tickets=[t];s.survey={answers:{c_q29:'新しい共通文'}};t.state='done';t.payload={profile:{},answers:{c_q29:'記録時の文'},character:schema.characters[0],code:t.code,code2:t.code2};setStatus(s,t.id,{state:'prepared'});assert.equal(effective(t,s).answers.c_q29,'記録時の文');assert.equal(t.state,'prepared');assert.equal(t.payload!.answers.c_q29,'記録時の文');
+});
 test('コードのみ出力した後の編集では古い出力を応募記録に使わない',()=>{
  const s=emptyState(),t=ticket('one');s.tickets=[t];const body={mode:'codes' as const};recordExport(s,body,JSON.stringify(logicalPlan(s,body)));
  editTicket(s,t.id,{code:t.code,code2:t.code2,answers:{c_q29:'追加の記述'},character:'',approved:true});assert.throws(()=>setStatus(s,t.id,{state:'done'}),/もう一度/);assert.equal(t.history[1].state,'exported_codes');

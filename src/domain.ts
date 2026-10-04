@@ -62,8 +62,9 @@ export function setStatus(state:State,id:string,body:any){
  if(['done','unknown'].includes(target)&&!t.payload&&t.approved){const last=t.history[0];if(last?.state==='exported_codes'&&last.snapshot?.code===t.code&&last.snapshot.code2===t.code2)t.payload=structuredClone(last.snapshot)}
  if(['prepared','done','unknown'].includes(target)&&!t.payload)throw Error('内容を編集した場合は、もう一度iPhone用ファイルを出力してください');
  const snapshot=t.payload?structuredClone(t.payload):null;
+ // Code-only exports do not contain answers; retain the original editable text.
+ if(['done','unknown'].includes(t.state)&&['review','ready','prepared'].includes(target)&&snapshot&&(snapshot.character||Object.keys(snapshot.answers).length||Object.keys(snapshot.profile).length)){t.answers=structuredClone(snapshot.answers);t.character=snapshot.character}
  if(['review','ready'].includes(target)){
-  if(['done','unknown'].includes(t.state)&&snapshot){t.answers=structuredClone(snapshot.answers);t.character=snapshot.character}
   t.payload=null;if(target==='review')t.approved=0;
  }
  t.state=target;t.note=String(body.note||({'review':'要確認に戻して編集を再開','ready':'確認済みに戻して編集を再開','prepared':'出力済みとして記録','done':'利用者が応募済みとして記録（サイトの受付確認は行っていません）','unknown':'利用者が結果不明として記録'}as Record<string,string>)[target]).slice(0,255);
