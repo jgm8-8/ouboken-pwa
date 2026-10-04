@@ -7,6 +7,7 @@ import type {RawTicket,State} from '../src/store';
 import {schema,editTicket,confirm,needsOcr,clearInactiveOcr,replaceCrop,removeTicket,setStatuses} from '../src/domain';
 import {encodeBackup,decodeBackup,createBackupFile,backupFilename,restoreBackup} from '../src/backup';
 import {thumbnailSize} from '../src/thumbnails';
+import {configureLlm,llmConfig} from '../src/llm';
 import {pruneWorkerCaches} from '../scripts/cache-runtime.mjs';
 const persistent=new Map<string,string>();Object.assign(globalThis,{localStorage:{getItem:(k:string)=>persistent.get(k)??null,setItem:(k:string,v:string)=>persistent.set(k,v),removeItem:(k:string)=>persistent.delete(k)}});
 function fixture(count=2):State{const s=emptyState();s.profile={c_q6_first:'架空の応募者'};s.survey={answers:{c_q29:'共通の文章'}};for(let i=0;i<count;i++){const id='ticket-'+i,code=String(i).padStart(10,'0');s.tickets.push({id,hash:'a'.repeat(64),filename:id+'.jpg',image:id+'.jpg',crop:id+'-crop.jpg',thumbnail:id+'-thumb.jpg',code,code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'prepared',answers:{c_q29:'個別の文章'+i},approved:1,character:'',note:'',created:'2026-10-05',payload:{profile:{c_q6_first:'記録時の応募者'},answers:{c_q29:'記録時の文章'+i},character:schema.characters[0],code,code2:schema.code2},history:[]} as RawTicket)}return s}
@@ -48,8 +49,8 @@ test('バックアップに日時と枚数を記録し、旧パスワードな�
  const header=strToU8('OUBOKEN-PWA-BACKUP-2\n'),files=unzipSync(new Uint8Array(await blob.arrayBuffer()).slice(header.length)),manifest=JSON.parse(strFromU8(files['manifest.json']));delete manifest.created_at;delete manifest.ticket_count;files['manifest.json']=strToU8(JSON.stringify(manifest));const legacy=await decodeBackup(new Blob([header,zipSync(files)]));assert.deepEqual(legacy.metadata,{created_at:null,ticket_count:2});
 });
 test('全データ削除は写真・住所・履歴・検知記録を消し、別画面からの古い保存を拒否する',async()=>{
- await seed();await primeImages();const previous=imageUrl('ticket-0.jpg');assert(previous);const other=await import(new URL('../src/store.ts?other-tab',import.meta.url).href);await other.readState();
- await clearStoredData();assert.deepEqual(await readState(),emptyState());assert.equal((await readBackup()).images.size,0);assert.equal(persistent.has('ouboken-pwa-checkpoint'),false);assert.equal(imageUrl('ticket-0.jpg'),'');
+ await seed();configureLlm('sk-test-only-clear-key-123456789012345');await primeImages();const previous=imageUrl('ticket-0.jpg');assert(previous);const other=await import(new URL('../src/store.ts?other-tab',import.meta.url).href);await other.readState();
+ await clearStoredData();assert.deepEqual(await readState(),emptyState());assert.equal((await readBackup()).images.size,0);assert.equal(persistent.has('ouboken-pwa-checkpoint'),false);assert.equal(persistent.has('ouboken-pwa-openai-key'),false);assert.equal(llmConfig().has_key,false);assert.equal(imageUrl('ticket-0.jpg'),'');
  await assert.rejects(other.mutate((state:State)=>{state.profile={c_q6_first:'古い画面の値'}}),/削除/);assert.deepEqual(await readState(),emptyState());
  await seed();assert.equal((await readState()).tickets.length,2);
 });
@@ -76,4 +77,9 @@ test('インストール中のキャッシュを保護し、旧ワーカーの�
  await pruneWorkerCaches(storage,prefix,active.cache,registration,async(worker:any)=>worker.cache);assert(names.has(installing.cache));assert.equal(names.has('scope-old'),false);
  names.add('scope-old');assert.equal(await pruneWorkerCaches(storage,prefix,active.cache,registration,async()=>null),false);assert(names.has('scope-old'));
  assert.equal(await pruneWorkerCaches(storage,prefix,active.cache,registration,async(worker:any)=>{registration.waiting={state:'installed',cache:'scope-new'};return worker.cache}),false);assert(names.has('scope-old'));
+});
+
+
+test('APIキーをバックアップに含めず、復元時も端末に設定したキーを保持する',async()=>{
+ await seed();const key='sk-test-only-backup-key-123456789012345';configureLlm(key);const {blob}=await createBackupFile(),decoded=await decodeBackup(blob);assert(!JSON.stringify(decoded.state).includes(key));const files=unzipSync(new Uint8Array(await blob.arrayBuffer()).slice(strToU8('OUBOKEN-PWA-BACKUP-2\n').length));assert(!strFromU8(files['state.json']).includes(key));assert(!strFromU8(files['manifest.json']).includes(key));const replacement='sk-test-replacement-key-123456789012345';configureLlm(replacement);await restoreBackup(decoded);assert.equal(persistent.get('ouboken-pwa-openai-key'),replacement);configureLlm('');
 });

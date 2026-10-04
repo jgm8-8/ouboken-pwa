@@ -5,6 +5,7 @@ export type RawTicket={id:string,hash:string,filename:string,image:string,crop:s
 export type State={version:1,profile:Record<string,string>,survey:{answers?:Answers,character?:string,notes?:Record<string,string>},tickets:RawTicket[]};
 export const emptyState=():State=>({version:1,profile:{},survey:{},tickets:[]});
 import {checkpoint,CHECKPOINT} from './checkpoint';
+import {configureLlm} from './llm';
 const DB_NAME='ouboken-pwa-v1';
 let opening:Promise<IDBDatabase>|undefined;
 let sessionEpoch:string|null=null;
@@ -61,5 +62,6 @@ export async function pruneImages(){
  const removed:string[]=[];await mutate((state,images)=>{const used=new Set(state.tickets.flatMap(t=>[t.image,t.crop,t.thumbnail]).filter(Boolean));const cursor=images.openKeyCursor();cursor.onsuccess=()=>{const entry=cursor.result;if(entry){if(!used.has(String(entry.key))){images.delete(entry.key);removed.push(String(entry.key))}entry.continue()}}},false,true);releaseImageUrls(removed);return removed;
 }
 export async function clearStoredData(){
+ configureLlm('');
  await mutate((state,images)=>{for(const key of Object.keys(state))delete (state as any)[key];Object.assign(state,emptyState());images.clear()},true);clearImageUrls();try{localStorage.removeItem(CHECKPOINT)}catch{}
 }

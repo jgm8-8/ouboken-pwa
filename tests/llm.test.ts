@@ -19,11 +19,22 @@ test('整形は文章だけを送信し、JSON形式と保存無効を指定し�
 test('拒否・未完了・不正な候補・上流エラーは元の文章を置き換える候補を返さない',async()=>{
  for(const response of [Response.json({status:'incomplete'}),Response.json({status:'completed',output:[{type:'message',content:[{type:'refusal'}]}]}),success([{c_q29:'a'.repeat(251)}]),success([{c_q29:'',c_q30:'捏造'}]),new Response('秘密のエラー',{status:401})]){const result=await createHandler(async()=>response)(request(),env);assert(result.status>=400);const content=await result.text();assert(!content.includes('variants'));assert(!content.includes('秘密'));assert(!content.includes(env.OPENAI_API_KEY))}
 });
-test('本人のAPIキーはメモリだけに保持し、文章以外を送信しない',async()=>{
+test('本人のAPIキーは端末内に保存し、文章以外を送信しない',async()=>{
  const persistent=new Map<string,string>(),session=new Map<string,string>();const adapter=(map:Map<string,string>)=>({getItem:(k:string)=>map.get(k)||null,setItem:(k:string,v:string)=>map.set(k,v),removeItem:(k:string)=>map.delete(k)});Object.assign(globalThis,{localStorage:adapter(persistent),sessionStorage:adapter(session)});
- assert.throws(()=>configureLlm('invalid'),/APIキー/);const key='sk-test-only-not-a-real-key-1234567890';configureLlm(key);assert.deepEqual(llmConfig(),{model:'gpt-5-nano',has_key:true});assert.equal(persistent.size,0);assert.equal(session.size,0);assert(!JSON.stringify(llmConfig()).includes(key));
+ assert.throws(()=>configureLlm('invalid'),/APIキー/);const key='sk-test-only-not-a-real-key-1234567890';configureLlm(key);assert.deepEqual(llmConfig(),{model:'gpt-5-nano',has_key:true});assert.equal(persistent.get('ouboken-pwa-openai-key'),key);assert.equal(session.size,0);assert(!JSON.stringify(llmConfig()).includes(key));
  const original=globalThis.fetch;globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.openai.com/v1/responses');assert.equal((options!.headers as Record<string,string>).Authorization,'Bearer '+key);const sent=JSON.parse(String(options!.body));assert.deepEqual(JSON.parse(sent.input),{notes:body.notes,max_length:250});assert.equal(sent.model,'gpt-5-nano');assert.equal(sent.store,false);assert.equal(sent.text.format.type,'json_schema');assert.equal(sent.text.verbosity,'low');assert.deepEqual(sent.reasoning,{effort:'minimal'});return success([{c_q29:'候補'}])};try{assert.deepEqual(await generate({...body,profile:{name:'秘密'},code:'秘密',image:'秘密'}),{variants:[{c_q29:'候補'}]})}finally{globalThis.fetch=original;configureLlm('')};assert.equal(llmConfig().has_key,false);await assert.rejects(generate(body),/OpenAI APIキー/);
 });
 test('直接接続の失敗・拒否・不正な候補は回答を置き換える結果を返さない',async()=>{
  configureLlm('sk-test-only-not-a-real-key-1234567890');const original=globalThis.fetch;try{for(const response of [new Response('鍵を含む秘密のエラー',{status:401}),new Response('billing',{status:429}),Response.json({status:'incomplete'}),Response.json({status:'completed',output:[{type:'message',content:[{type:'refusal'}]}]}),success([{c_q29:'a'.repeat(251)}])]){globalThis.fetch=async()=>response;await assert.rejects(generate(body),error=>!String(error).includes('秘密'))}}finally{globalThis.fetch=original;configureLlm('')}
+});
+
+
+test('新しい画面でも保存したキーを読み込み、別画面での削除後は通信しない',async()=>{
+ const key='sk-test-persistent-only-123456789012345';configureLlm(key);const restarted=await import(new URL('../src/llm.ts?restart-test',import.meta.url).href);assert.equal(restarted.llmConfig().has_key,true);const original=globalThis.fetch;let calls=0;globalThis.fetch=async(_,options)=>{calls++;assert.equal((options!.headers as Record<string,string>).Authorization,'Bearer '+key);return success([{c_q29:'候補'}])};try{await restarted.generate(body);configureLlm('');assert.equal(restarted.llmConfig().has_key,false);await assert.rejects(restarted.generate(body),/APIキー/);assert.equal(calls,1)}finally{globalThis.fetch=original;configureLlm('')}
+});
+test('キーの保存・削除失敗を通知し、保存できなかった新しいキーを採用しない',()=>{
+ const original=globalThis.localStorage,previous='sk-test-previous-key-123456789012345';configureLlm(previous);Object.assign(globalThis,{localStorage:{getItem:(name:string)=>original.getItem(name),setItem:()=>{throw Error('quota')},removeItem:()=>{throw Error('denied')}}});try{assert.throws(()=>configureLlm('sk-test-unsaved-key-123456789012345'),/保存できません/);assert.equal(original.getItem('ouboken-pwa-openai-key'),previous);assert.throws(()=>configureLlm(''),/削除できません/);assert.equal(llmConfig().has_key,true)}finally{Object.assign(globalThis,{localStorage:original});configureLlm('')}
+});
+test('不正な保存済みキーは設定済みと扱わず、OpenAIへ送信しない',async()=>{
+ localStorage.setItem('ouboken-pwa-openai-key','invalid');assert.equal(llmConfig().has_key,false);await assert.rejects(generate(body),/APIキー/);configureLlm('');
 });
