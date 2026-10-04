@@ -4,3 +4,7 @@ release/
 public/ocr/
 public/THIRD_PARTY_NOTICES.txt
 test-results/
+
+.env*
+.dev.vars*
+.wrangler/

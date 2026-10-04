@@ -1,6 +1,6 @@
 import {locateCodeField,rectify} from './code-image';
 import {digest,uniqueId,now,mutate,readState,readImages} from './store';
-import {schema,queueOcrRetry} from './domain';
+import {schema,queueOcrRetry,applyRecognizedCode} from './domain';
 import type {RawTicket} from './store';
 // Vite's BASE_URL can be relative; use the document's app root, never a CDN.
 const root=new URL(import.meta.env.BASE_URL,location.href);
@@ -42,12 +42,11 @@ async function recognize(ticket:RawTicket,blob:Blob){
   crop=await toBlob(cropped);result=await readCode(cropped);
  }
  const valid=/^[A-Z0-9]{10}$/.test(result.text)&&result.confidence>=.7;
- const candidates=valid?[{text:result.text,confidence:result.confidence,box:field!.quad}]:[];
- await mutate((state,images)=>{const t=state.tickets.find(t=>t.id===ticket.id);if(!t||!t.ocr_pending||t.approved||['done','unknown'].includes(t.state))return;const code=valid?result.text:'';const duplicate=code&&state.tickets.some(other=>other.id!==t.id&&other.code===code&&other.code2===schema.code2);t.code=duplicate?'':code;t.ocr={candidates,lines:result.text?[result.text]:[]};t.note=duplicate?'同じコードの応募券が登録済みです。候補を確認してください。':valid?(/[0O1I]/.test(code)?'0・O、1・Iは券面と照合してください。':'画像とコードを照合してください。'):field?'コードを読み取れませんでした。券面を見て入力してください。':'コード欄が見つかりませんでした。券全体を正面から撮影してください。';t.ocr_pending=false;t.crop=t.image;if(crop){t.crop=t.id+'-crop.jpg';images.put(crop,t.crop)}});
+ return mutate((state,images)=>{const t=state.tickets.find(t=>t.id===ticket.id);if(!t||!t.ocr_pending||t.approved||['done','unknown'].includes(t.state))return null;const duplicate=applyRecognizedCode(state,t.id,result.text,result.confidence,field?.quad);if(!valid)t.note=field?'コードを読み取れませんでした。券面を見て入力してください。':'コード欄が見つかりませんでした。券全体を正面から撮影してください。';t.crop=t.image;if(crop){t.crop=t.id+'-crop.jpg';images.put(crop,t.crop)}return duplicate?{duplicate:true,...duplicate}:null});
 }
 async function pending(jobId:string){
  const job=jobs.get(jobId)!;const state=await readState(),images=await readImages();const pending=state.tickets.filter(t=>t.ocr_pending);job.total=pending.length;
- for(const t of pending){try{const blob=images.get(t.image);if(!blob)throw Error('写真が見つかりません');await recognize(t,blob);job.results.push({id:t.id})}catch(e){console.error('写真の読み取り:',e);await mutate(s=>{const item=s.tickets.find(x=>x.id===t.id);if(item&&item.ocr_pending&&!item.approved&&!['done','unknown'].includes(item.state)){item.ocr_pending=false;item.note='読み取りに失敗しました。写真を開いてコードを入力してください。 '+(e as Error).message}});job.errors.push({filename:t.filename,message:(e as Error).message})}job.done++}
+ for(const t of pending){try{const blob=images.get(t.image);if(!blob)throw Error('写真が見つかりません');const result=await recognize(t,blob);job.results.push(result||{id:t.id})}catch(e){console.error('写真の読み取り:',e);await mutate(s=>{const item=s.tickets.find(x=>x.id===t.id);if(item&&item.ocr_pending&&!item.approved&&!['done','unknown'].includes(item.state)){item.ocr_pending=false;item.note='読み取りに失敗しました。写真を開いてコードを入力してください。 '+(e as Error).message}});job.errors.push({filename:t.filename,message:(e as Error).message})}job.done++}
  job.status='done';
 }
 export async function upload(files:File[]){
@@ -55,7 +54,7 @@ export async function upload(files:File[]){
  if(!files.length||files.length>150)throw Error('一度に1〜150枚を選択してください');
  const id=uniqueId(),job={status:'running',total:files.length,done:0,results:[]as unknown[],errors:[]as{filename:string,message:string}[]};jobs.set(id,job);
  serial=serial.then(async()=>{
-  for(const file of files){try{if(file.size>25_000_000)throw Error('1枚25MB以内で選択してください');const hash=await digest(await file.arrayBuffer());if((await readState()).tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true});continue}const normalized=await normalize(file),ident=uniqueId();await mutate((state,images)=>{if(state.tickets.some(t=>t.hash===hash))return;images.put(normalized.blob,ident+'.jpg');state.tickets.unshift({id:ident,hash,filename:file.name,image:ident+'.jpg',crop:ident+'.jpg',code:'',code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'review',answers:{},approved:0,character:'',note:'読み取り待ち',created:now(),payload:null,history:[],ocr_pending:true})})}catch(e){job.errors.push({filename:file.name,message:(e as Error).message})}}
+  for(const file of files){try{if(file.size>25_000_000)throw Error('1枚25MB以内で選択してください');const hash=await digest(await file.arrayBuffer());if((await readState()).tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});continue}const normalized=await normalize(file),ident=uniqueId();await mutate((state,images)=>{if(state.tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});return}images.put(normalized.blob,ident+'.jpg');state.tickets.unshift({id:ident,hash,filename:file.name,image:ident+'.jpg',crop:ident+'.jpg',code:'',code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'review',answers:{},approved:0,character:'',note:'読み取り待ち',created:now(),payload:null,history:[],ocr_pending:true})})}catch(e){job.errors.push({filename:file.name,message:(e as Error).message})}}
   await pending(id);
  }).catch(e=>{job.errors.push({filename:'',message:(e as Error).message});job.status='done'});
  return {id};

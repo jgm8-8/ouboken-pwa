@@ -4,6 +4,7 @@ export type History={state:string,note:string,created:string,snapshot:Payload|nu
 export type RawTicket={id:string,hash:string,filename:string,image:string,crop:string,code:string,code2:string,qr:string,ocr:{candidates:{text:string,confidence:number,box:number[][]}[],lines:string[]},state:string,answers:Answers,approved:number,character:string,note:string,created:string,payload:Payload|null,history:History[],ocr_pending?:boolean};
 export type State={version:1,profile:Record<string,string>,survey:{answers?:Answers,character?:string,notes?:Record<string,string>},tickets:RawTicket[]};
 export const emptyState=():State=>({version:1,profile:{},survey:{},tickets:[]});
+import {checkpoint} from './checkpoint';
 const DB_NAME='ouboken-pwa-v1';
 let opening:Promise<IDBDatabase>|undefined;
 function database(){
@@ -23,10 +24,10 @@ export async function readState():Promise<State>{
 // Read, validate, and write in one IndexedDB transaction, including across tabs.
 export async function mutate<T>(fn:(state:State,images:IDBObjectStore)=>T):Promise<T>{
  const db=await database();return new Promise<T>((resolve,reject)=>{
-  const tx=db.transaction(['state','images'],'readwrite');let result:T,problem:unknown;
+  const tx=db.transaction(['state','images'],'readwrite');let result:T,problem:unknown,written:State;
   const store=tx.objectStore('state'),request=store.get('main');
-  request.onsuccess=()=>{try{const state:State=request.result??emptyState();result=fn(state,tx.objectStore('images'));store.put(state,'main')}catch(e){problem=e;tx.abort()}};
-  tx.oncomplete=()=>resolve(result);tx.onabort=()=>reject(problem??storageError(tx.error));tx.onerror=()=>{};
+  request.onsuccess=()=>{try{const state:State=request.result??emptyState();result=fn(state,tx.objectStore('images'));store.put(state,'main');written=state}catch(e){problem=e;tx.abort()}};
+  tx.oncomplete=()=>{checkpoint(written);if(typeof window!=='undefined')window.dispatchEvent(new Event('ouboken-data-changed'));resolve(result)};tx.onabort=()=>reject(problem??storageError(tx.error));tx.onerror=()=>{};
  });
 }
 export async function readImages():Promise<Map<string,Blob>>{
@@ -37,16 +38,16 @@ export async function readImages():Promise<Map<string,Blob>>{
  });
 }
 export async function readBackup(){
- const db=await database();return new Promise<{state:State,images:Map<string,Blob>}>((resolve,reject)=>{
-  const tx=db.transaction(['state','images']);let state:State=emptyState();const images=new Map<string,Blob>();
-  const stateRequest=tx.objectStore('state').get('main');stateRequest.onsuccess=()=>{state=stateRequest.result??emptyState()};
+ const db=await database();return new Promise<{state:State,images:Map<string,Blob>,hasState:boolean}>((resolve,reject)=>{
+  const tx=db.transaction(['state','images']);let state:State=emptyState(),hasState=false;const images=new Map<string,Blob>();
+  const stateRequest=tx.objectStore('state').get('main');stateRequest.onsuccess=()=>{hasState=!!stateRequest.result;state=stateRequest.result??emptyState()};
   const request=tx.objectStore('images').openCursor();request.onsuccess=()=>{const c=request.result;if(c){images.set(String(c.key),c.value);c.continue()}};
-  tx.oncomplete=()=>resolve({state,images});tx.onabort=()=>reject(storageError(tx.error));
+  tx.oncomplete=()=>resolve({state,images,hasState});tx.onabort=()=>reject(storageError(tx.error));
  });
 }
 const urls=new Map<string,string>();
 export function imageUrl(name:string){return urls.get(name)||''}
-export async function primeImages(){for(const [name,blob] of await readImages())if(!urls.has(name))urls.set(name,URL.createObjectURL(blob))}
+export async function primeImages(){const images=await readImages();releaseImageUrls([...urls.keys()].filter(name=>!images.has(name)));for(const [name,blob] of images)if(!urls.has(name))urls.set(name,URL.createObjectURL(blob))}
 export function clearImageUrls(){for(const url of urls.values())URL.revokeObjectURL(url);urls.clear()}
 export function releaseImageUrls(names:string[]){for(const name of names){const url=urls.get(name);if(url)URL.revokeObjectURL(url);urls.delete(name)}}
 export function now(){return new Date().toISOString().slice(0,19).replace('T',' ')}

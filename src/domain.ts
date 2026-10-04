@@ -33,6 +33,7 @@ export function editTicket(state:State,id:string,body:any){
  const t=find(state,id);unlocked(t);const code=String(body.code??'').trim(),code2=body.code2??schema.code2,answers=body.answers??{},character=body.character??'';
  validateCode(state,t,code,code2,!!body.approved);validateAnswers(answers);
  if(character&&!schema.characters.includes(character))throw Error('キャラクターを選択してください');
+ if(t.payload||t.history[0]?.state==='exported_codes')t.history.unshift({state:'edited',note:'出力後の内容を編集',created:now(),snapshot:t.payload?structuredClone(t.payload):null});
  Object.assign(t,{code,code2,answers,character,approved:Number(!!body.approved),state:body.approved?'ready':'review',payload:null,note:''});
 }
 export function confirm(state:State,id:string,body:any){
@@ -55,10 +56,25 @@ export function payloadFor(t:RawTicket,state:State):Payload{
  const e=effective(t,state);return {profile:{...state.profile},answers:structuredClone(e.answers),character:e.character,code:t.code,code2:t.code2};
 }
 export function setStatus(state:State,id:string,body:any){
- const t=find(state,id);if(!['done','unknown','ready'].includes(body.state))throw Error('状態が正しくありません');
- if(['done','unknown'].includes(body.state)&&!t.payload&&t.approved){const last=t.history.find(h=>h.state==='exported_codes');if(last?.snapshot?.code===t.code&&last.snapshot.code2===t.code2)t.payload=structuredClone(last.snapshot)}
- if(['done','unknown'].includes(body.state)&&!t.payload)throw Error('先にiPhone用ファイルを出力してください');
- if(body.state==='ready'&&!String(body.note??'').trim())throw Error('状態を戻す理由を入力してください');
- t.state=body.state;t.note=body.note||(body.state==='done'?'利用者が応募済みとして記録（サイトの受付確認は行っていません）':'利用者が結果不明として記録');
- t.history.unshift({state:t.state,note:t.note,created:now(),snapshot:null});
+ const t=find(state,id),target=String(body.state);if(!['review','ready','prepared','done','unknown'].includes(target))throw Error('状態が正しくありません');
+ if(target===t.state)return;
+ if(target==='ready'){validateCode(state,t,t.code,t.code2,true);if(!t.approved)throw Error('先に画像とコードを照合してください')}
+ if(['done','unknown'].includes(target)&&!t.payload&&t.approved){const last=t.history[0];if(last?.state==='exported_codes'&&last.snapshot?.code===t.code&&last.snapshot.code2===t.code2)t.payload=structuredClone(last.snapshot)}
+ if(['prepared','done','unknown'].includes(target)&&!t.payload)throw Error('内容を編集した場合は、もう一度iPhone用ファイルを出力してください');
+ const snapshot=t.payload?structuredClone(t.payload):null;
+ if(['review','ready'].includes(target)){
+  if(['done','unknown'].includes(t.state)&&snapshot){t.answers=structuredClone(snapshot.answers);t.character=snapshot.character}
+  t.payload=null;if(target==='review')t.approved=0;
+ }
+ t.state=target;t.note=String(body.note||({'review':'要確認に戻して編集を再開','ready':'確認済みに戻して編集を再開','prepared':'出力済みとして記録','done':'利用者が応募済みとして記録（サイトの受付確認は行っていません）','unknown':'利用者が結果不明として記録'}as Record<string,string>)[target]).slice(0,255);
+ t.history.unshift({state:target,note:t.note,created:now(),snapshot});
+}
+export function applyRecognizedCode(state:State,id:string,text:string,confidence:number,box:number[][]=[]){
+ const t=state.tickets.find(t=>t.id===id);if(!t||!t.ocr_pending||t.approved||['done','unknown'].includes(t.state))return null;
+ const valid=/^[A-Z0-9]{10}$/.test(text)&&confidence>=.7,code=valid?text:'';
+ const duplicate=code?state.tickets.find(other=>other.id!==id&&other.code===code&&other.code2===schema.code2):undefined;
+ t.code=duplicate?'':code;t.ocr={candidates:valid?[{text,confidence,box}]:[],lines:text?[text]:[]};t.ocr_pending=false;
+ if(duplicate)t.note='同じコードの応募券が登録済みです。候補を確認してください。';
+ else if(valid)t.note=/[0O1I]/.test(code)?'0・O、1・Iは券面と照合してください。':'画像とコードを照合してください。';
+ return duplicate?{filename:t.filename,code,existing:duplicate.filename}:null;
 }

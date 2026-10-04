@@ -1,4 +1,5 @@
 import {useState,useEffect} from 'react';
+import {workerRequest} from './storage-health';
 let registration:ServiceWorkerRegistration|undefined;
 let status='準備中…';
 const event=()=>window.dispatchEvent(new Event('ouboken-pwa-status'));
@@ -14,7 +15,7 @@ export async function startPwa(){
 }
 export function PwaStatus(){
  const [label,setLabel]=useState(status),[persisted,setPersisted]=useState(false),[requesting,setRequesting]=useState(false),[message,setMessage]=useState('');
- useEffect(()=>{const refresh=()=>setLabel(status);window.addEventListener('ouboken-pwa-status',refresh);navigator.storage?.persisted?.().then(setPersisted).catch(()=>{});return()=>window.removeEventListener('ouboken-pwa-status',refresh)},[]);
+ useEffect(()=>{const refresh=()=>{setLabel(status);void workerRequest('HEALTH').then(health=>{if(health?.missing.length)setLabel('キャッシュ不足（オンラインで再準備できます）')}).catch(()=>{})};refresh();window.addEventListener('ouboken-pwa-status',refresh);navigator.storage?.persisted?.().then(setPersisted).catch(()=>{});return()=>window.removeEventListener('ouboken-pwa-status',refresh)},[]);
  const request=async()=>{setRequesting(true);try{const allowed=await navigator.storage.persist();setPersisted(allowed);setMessage(allowed?'自動削除を抑える設定になりました。':'Safariが許可しませんでした。入力内容の自動保存は引き続き使えます。')}catch{setMessage('このブラウザでは設定を変更できませんでした。')}finally{setRequesting(false)}};
  return <section className="panel"><h2>アプリ</h2><p>{label}</p><p className="muted">Safariの共有から「ホーム画面に追加」。入力内容はこの端末内に保存します。</p>{registration?.waiting&&<button className="secondary" onClick={()=>{navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload(),{once:true});registration!.waiting!.postMessage('ACTIVATE')}}>更新して再起動</button>}<details><summary>データの保存について</summary><p className="muted">容量不足などによる自動削除を抑える設定です。Safariが許可するかを判断します。閲覧データの削除には対応できないため、バックアップもファイルに保存してください。</p>{persisted?<p className="muted">自動削除を抑える設定：有効</p>:typeof navigator.storage?.persist==='function'&&<button className="secondary" disabled={requesting} onClick={()=>void request()}>{requesting?'確認中…':'自動削除を抑える'}</button>}{message&&<p role="status" className="muted">{message}</p>}</details></section>;
 }

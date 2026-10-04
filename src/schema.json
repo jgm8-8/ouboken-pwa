@@ -257,19 +257,19 @@
       "id": "c_q30",
       "label": "Q8. 今後やってほしいイベント",
       "type": "text",
-      "generate": false
+      "generate": true
     },
     {
       "id": "c_q31",
       "label": "Q9. ほしい新商品",
       "type": "text",
-      "generate": false
+      "generate": true
     },
     {
       "id": "c_q29",
       "label": "感想・ご要望",
       "type": "text",
-      "generate": false
+      "generate": true
     }
   ],
   "characters": [
