@@ -1,12 +1,12 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {unzipSync,strFromU8} from 'fflate';
+import {zipSync,unzipSync,strFromU8,strToU8} from 'fflate';
 import {emptyState,mutate,readState,readBackup} from '../src/store';
 import type {RawTicket,State} from '../src/store';
 import {schema,confirm,effective,setStatus,removeTicket} from '../src/domain';
 import {logicalPlan,makeZip,recordExport,preview} from '../src/export';
-import {encodeBackup,decodeBackup,restoreBackup,validateBackup} from '../src/backup';
+import {encodeBackup,decodeBackup,restoreBackup,validateBackup,createBackup} from '../src/backup';
 
 function ticket(id:string,code:string):RawTicket{return {id,hash:'a'.repeat(64),filename:'test.jpg',image:id+'.jpg',crop:id+'.jpg',code,code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'ready',answers:{},approved:1,character:'',note:'',created:'2026-10-05 00:00:00',payload:null,history:[]}}
 function fixture():State{
@@ -41,12 +41,26 @@ test('コードだけの出力は住所不要で、未確認券の黙った省�
  const s=fixture();s.profile={};s.tickets[1].approved=0;const p=logicalPlan(s,{mode:'codes'});assert.equal(p.issues[0].page,'review');assert.throws(()=>makeZip(p),/確認/);
  const body={mode:'codes' as const,exclude_unconfirmed:true};const valid=logicalPlan(s,body);assert.equal(valid.ticket_count,1);assert.equal(valid.entries.length,1);recordExport(s,body,JSON.stringify(valid));setStatus(s,'first',{state:'done'});assert.equal(s.tickets[0].payload!.code,'00ABC12345');
 });
-test('暗号化バックアップは正しいパスワードのみで復元できる',async()=>{
- await seed();const original=await readBackup();const file=await encodeBackup(original.state,original.images,'test-password');
- assert(!new TextDecoder().decode(await file.arrayBuffer()).includes('test@example.com'));
- await assert.rejects(decodeBackup(file,'wrong-password'),/パスワード/);
- const damaged=new Uint8Array(await file.arrayBuffer());damaged[damaged.length-1]^=1;await assert.rejects(decodeBackup(new Blob([damaged]),'test-password'),/破損/);
- const decoded=await decodeBackup(file,'test-password');await mutate(s=>{s.profile.c_q6_first='変更'});await restoreBackup(decoded);assert.deepEqual((await readState()),original.state);assert.equal(await (await readBackup()).images.get('first.jpg')!.text(),'photo');
+test('パスワードなしのバックアップで写真・回答・履歴を復元できる',async()=>{
+ await seed();await mutate(s=>{s.tickets[0].answers.c_q29='個別の感想';const plan=logicalPlan(s,{});recordExport(s,{},JSON.stringify(plan));setStatus(s,'first',{state:'done'})});
+ const original=await readBackup(),file=await createBackup();
+ const header=strToU8('OUBOKEN-PWA-BACKUP-2\n'),archive=unzipSync(new Uint8Array(await file.arrayBuffer()).slice(header.length));
+ assert.equal(JSON.parse(strFromU8(archive['state.json'])).profile.c_q17,'test@example.com');assert.equal(JSON.parse(strFromU8(archive['manifest.json'])).version,2);
+ const decoded=await decodeBackup(file);await mutate((s,images)=>{s.profile.c_q6_first='変更';images.clear()});await restoreBackup(decoded);
+ assert.deepEqual(await readState(),original.state);assert.equal(await (await readBackup()).images.get('first.jpg')!.text(),'photo');
+});
+test('バックアップの写真や台帳の破損を拒否し、現在の保存内容を保つ',async()=>{
+ await seed();const original=await readBackup(),file=await createBackup(),header=strToU8('OUBOKEN-PWA-BACKUP-2\n');
+ const archive=unzipSync(new Uint8Array(await file.arrayBuffer()).slice(header.length));
+ for(const name of ['images/first.jpg','state.json']){const altered={...archive,[name]:strToU8('changed')};await assert.rejects(decodeBackup(new Blob([header,zipSync(altered)])),/破損/)}
+ const missing={...archive};delete missing['images/first.jpg'];await assert.rejects(decodeBackup(new Blob([header,zipSync(missing)])),/破損/);
+ await assert.rejects(decodeBackup(new Blob([header,zipSync({...archive,'unexpected.txt':strToU8('extra')})])),/破損/);
+ assert.deepEqual(await readState(),original.state);assert.equal(await (await readBackup()).images.get('first.jpg')!.text(),'photo');
+});
+test('欠損した台帳のバックアップ作成と旧暗号化形式の読み込みを拒否する',async()=>{
+ await seed();const original=await readBackup();const missing=new Map(original.images);missing.delete('first.jpg');await assert.rejects(encodeBackup(original.state,missing),/写真/);
+ await assert.rejects(decodeBackup(new Blob(['OUBOKEN-PWA-BACKUP-1\n','old encrypted file'])),/旧形式/);
+ assert.deepEqual(await readState(),original.state);
 });
 test('破損バックアップを拒否し、復元前の台帳を保つ',async()=>{
  await seed();const b=await readBackup();b.state.tickets[1].code=b.state.tickets[0].code;assert.throws(()=>validateBackup(b.state,b.images),/重複/);await assert.rejects(restoreBackup(b),/重複/);assert.equal((await readState()).tickets[1].code,'00DEF12345');
