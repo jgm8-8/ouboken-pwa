@@ -6,7 +6,7 @@ export function dataProblems(state:State,images:Map<string,Blob>,hasState:boolea
  if(previous.saved&&!hasState)messages.push('保存した応募データが見つかりません。バックアップから復元してください。');
  else if(previous.ids?.some(id=>!state.tickets.some(t=>t.id===id)))messages.push('以前保存した応募券の一部が見つかりません。バックアップを確認してください。');
  const missing=new Set(state.tickets.flatMap(t=>[t.image,t.crop]).filter(name=>!images.get(name)?.size));
- if(missing.size)messages.push(`保存画像が${missing.size}ファイル不足しています。写真の追加またはバックアップの復元が必要です。`);
+ if(missing.size)messages.push(`保存画像が${missing.size}ファイル不足しています。バックアップの復元、または該当する券の削除・再追加が必要です。`);
  return messages;
 }
 export const cachePrefix=(scope:string)=>'ouboken-pwa-'+scope+'-';
