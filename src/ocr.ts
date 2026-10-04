@@ -1,6 +1,7 @@
 import {locateCodeField,rectify} from './code-image';
-import {digest,uniqueId,now,mutate,readState,readImages} from './store';
-import {schema,queueOcrRetry,applyRecognizedCode} from './domain';
+import {digest,uniqueId,now,mutate,readState,readImages,releaseImageUrls} from './store';
+import {schema,queueOcrRetry,applyRecognizedCode,needsOcr,clearInactiveOcr,replaceCrop} from './domain';
+import {thumbnailFromCanvas} from './thumbnails';
 import type {RawTicket} from './store';
 // Vite's BASE_URL can be relative; use the document's app root, never a CDN.
 const root=new URL(import.meta.env.BASE_URL,location.href);
@@ -42,27 +43,28 @@ async function recognize(ticket:RawTicket,blob:Blob){
   crop=await toBlob(cropped);result=await readCode(cropped);
  }
  const valid=/^[A-Z0-9]{10}$/.test(result.text)&&result.confidence>=.7;
- return mutate((state,images)=>{const t=state.tickets.find(t=>t.id===ticket.id);if(!t||!t.ocr_pending||t.approved||['done','unknown'].includes(t.state))return null;const duplicate=applyRecognizedCode(state,t.id,result.text,result.confidence,field?.quad);if(!valid)t.note=field?'コードを読み取れませんでした。券面を見て入力してください。':'コード欄が見つかりませんでした。券全体を正面から撮影してください。';t.crop=t.image;if(crop){t.crop=t.id+'-crop.jpg';images.put(crop,t.crop)}return duplicate?{duplicate:true,...duplicate}:null});
+ const update=await mutate((state,images)=>{const t=state.tickets.find(t=>t.id===ticket.id);if(!t||!t.ocr_pending||t.approved||['done','unknown'].includes(t.state))return null;const duplicate=applyRecognizedCode(state,t.id,result.text,result.confidence,field?.quad);if(!valid)t.note=field?'コードを読み取れませんでした。券面を見て入力してください。':'コード欄が見つかりませんでした。券全体を正面から撮影してください。';const released=replaceCrop(state,images,t.id,crop);return {released,result:duplicate?{duplicate:true,...duplicate}:null}});if(update)releaseImageUrls(update.released);return update?.result??null;
 }
 async function pending(jobId:string){
- const job=jobs.get(jobId)!;const state=await readState(),images=await readImages();const pending=state.tickets.filter(t=>t.ocr_pending);job.total=pending.length;
- for(const t of pending){try{const blob=images.get(t.image);if(!blob)throw Error('写真が見つかりません');const result=await recognize(t,blob);job.results.push(result||{id:t.id})}catch(e){console.error('写真の読み取り:',e);await mutate(s=>{const item=s.tickets.find(x=>x.id===t.id);if(item&&item.ocr_pending&&!item.approved&&!['done','unknown'].includes(item.state)){item.ocr_pending=false;item.note='読み取りに失敗しました。写真を開いてコードを入力してください。 '+(e as Error).message}});job.errors.push({filename:t.filename,message:(e as Error).message})}job.done++}
+ const job=jobs.get(jobId)!;const state=await readState(),images=await readImages();const pending=state.tickets.filter(needsOcr);job.total=pending.length;
+ for(const t of pending){try{const current=(await readState()).tickets.find(item=>item.id===t.id);if(!current||!needsOcr(current)){job.done++;continue}const blob=images.get(t.image);if(!blob)throw Error('写真が見つかりません');const result=await recognize(t,blob);job.results.push(result||{id:t.id})}catch(e){console.error('写真の読み取り:',e);await mutate(s=>{const item=s.tickets.find(x=>x.id===t.id);if(item&&item.ocr_pending&&!item.approved&&!['done','unknown'].includes(item.state)){item.ocr_pending=false;item.note='読み取りに失敗しました。写真を開いてコードを入力してください。 '+(e as Error).message}});job.errors.push({filename:t.filename,message:(e as Error).message})}job.done++}
  job.status='done';
 }
 export async function upload(files:File[]){
  if([...jobs.values()].some(j=>j.status==='running'))throw Error('取り込み中です。完了後に追加してください。');
  if(!files.length||files.length>150)throw Error('一度に1〜150枚を選択してください');
- const id=uniqueId(),job={status:'running',total:files.length,done:0,results:[]as unknown[],errors:[]as{filename:string,message:string}[]};jobs.set(id,job);
+ const id=uniqueId(),job={status:'running',total:files.length,done:0,results:[]as unknown[],errors:[]as{filename:string,message:string}[]};for(const [key,value]of jobs)if(value.status==='done')jobs.delete(key);jobs.set(id,job);
  serial=serial.then(async()=>{
-  for(const file of files){try{if(file.size>25_000_000)throw Error('1枚25MB以内で選択してください');const hash=await digest(await file.arrayBuffer());if((await readState()).tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});continue}const normalized=await normalize(file),ident=uniqueId();await mutate((state,images)=>{if(state.tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});return}images.put(normalized.blob,ident+'.jpg');state.tickets.unshift({id:ident,hash,filename:file.name,image:ident+'.jpg',crop:ident+'.jpg',code:'',code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'review',answers:{},approved:0,character:'',note:'読み取り待ち',created:now(),payload:null,history:[],ocr_pending:true})})}catch(e){job.errors.push({filename:file.name,message:(e as Error).message})}}
+  for(const file of files){try{if(file.size>25_000_000)throw Error('1枚25MB以内で選択してください');const hash=await digest(await file.arrayBuffer());if((await readState()).tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});continue}const normalized=await normalize(file),thumbnail=await thumbnailFromCanvas(normalized.canvas),ident=uniqueId();await mutate((state,images)=>{if(state.tickets.some(t=>t.hash===hash)){job.results.push({duplicate:true,filename:file.name,code:'',existing:'同じ写真'});return}images.put(normalized.blob,ident+'.jpg');images.put(thumbnail,ident+'-thumb.jpg');state.tickets.unshift({id:ident,hash,filename:file.name,image:ident+'.jpg',crop:ident+'.jpg',thumbnail:ident+'-thumb.jpg',code:'',code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'review',answers:{},approved:0,character:'',note:'読み取り待ち',created:now(),payload:null,history:[],ocr_pending:true})})}catch(e){job.errors.push({filename:file.name,message:(e as Error).message})}}
   await pending(id);
  }).catch(e=>{job.errors.push({filename:'',message:(e as Error).message});job.status='done'});
  return {id};
 }
+export function hasRunningOcr(){return [...jobs.values()].some(j=>j.status==='running')}
 export function job(id:string){const item=jobs.get(id);if(!item)throw Error('読み取り記録がありません');return {...item,id}}
 export async function resume(){
  if([...jobs.values()].some(j=>j.status==='running'))return null;
- const count=(await readState()).tickets.filter(t=>t.ocr_pending).length;if(!count)return null;
+ const saved=await readState();if(saved.tickets.some(t=>t.ocr_pending&&!needsOcr(t)))await mutate(clearInactiveOcr,false,true);const count=(await readState()).tickets.filter(needsOcr).length;if(!count)return null;
  const id=uniqueId();jobs.set(id,{status:'running',total:count,done:0,results:[],errors:[]});serial=serial.then(()=>pending(id)).catch(e=>{const j=jobs.get(id)!;j.status='done';j.errors.push({filename:'',message:(e as Error).message})});return {id,done:0,total:count};
 }
 

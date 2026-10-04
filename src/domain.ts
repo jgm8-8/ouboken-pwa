@@ -12,7 +12,7 @@ export function effective(t:RawTicket,state:State){
 export function find(state:State,id:string){const t=state.tickets.find(t=>t.id===id);if(!t)throw Error('応募券が見つかりません');return t}
 export function removeTicket(state:State,images:IDBObjectStore,id:string){
  const ticket=find(state,id);state.tickets=state.tickets.filter(t=>t.id!==id);
- const unused=[...new Set([ticket.image,ticket.crop])].filter(name=>!state.tickets.some(t=>t.image===name||t.crop===name));
+ const unused=[...new Set([ticket.image,ticket.crop,ticket.thumbnail,ticket.id+'-crop.jpg',ticket.id+'-thumb.jpg'].filter((name):name is string=>!!name))].filter(name=>!state.tickets.some(t=>t.image===name||t.crop===name||t.thumbnail===name));
  for(const name of unused)images.delete(name);
  return unused;
 }
@@ -25,6 +25,7 @@ export function validateAnswers(answers:Answers){
  }
 }
 export function validateCode(state:State,t:RawTicket,code:string,code2:string,approved:boolean){
+ if(typeof code2!=='string'||code2.length>4000)throw Error('コード②を4000文字以内で入力してください');
  if(code&&!/^[A-Za-z0-9]{1,64}$/.test(code))throw Error('コード①は券面どおりの英数字で入力してください');
  if(approved&&(!code||code2!==schema.code2))throw Error('画像とコード①・②を確認してください');
  if(code&&state.tickets.some(other=>other.id!==t.id&&other.code===code&&other.code2===code2))throw Error('同じシリアルコードが登録済みです。重複を確認してください。');
@@ -34,11 +35,11 @@ export function editTicket(state:State,id:string,body:any){
  validateCode(state,t,code,code2,!!body.approved);validateAnswers(answers);
  if(character&&!schema.characters.includes(character))throw Error('キャラクターを選択してください');
  if(t.payload||t.history[0]?.state==='exported_codes')t.history.unshift({state:'edited',note:'出力後の内容を編集',created:now(),snapshot:t.payload?structuredClone(t.payload):null});
- Object.assign(t,{code,code2,answers,character,approved:Number(!!body.approved),state:body.approved?'ready':'review',payload:null,note:''});
+ Object.assign(t,{code,code2,answers,character,approved:Number(!!body.approved),state:body.approved?'ready':'review',payload:null,note:'',ocr_pending:false});
 }
 export function confirm(state:State,id:string,body:any){
  const t=find(state,id);unlocked(t);const code=String(body.code??'').trim(),code2=body.code2??schema.code2;
- validateCode(state,t,code,code2,true);Object.assign(t,{code,code2,approved:1,state:'ready',payload:null,note:''});
+ validateCode(state,t,code,code2,true);Object.assign(t,{code,code2,approved:1,state:'ready',payload:null,note:'',ocr_pending:false});
 }
 export type Issue={id?:string,message:string,page:string,count?:number};
 export function profileIssues(profile:Record<string,string>):Issue[]{
@@ -78,4 +79,18 @@ export function applyRecognizedCode(state:State,id:string,text:string,confidence
  if(duplicate)t.note='同じコードの応募券が登録済みです。候補を確認してください。';
  else if(valid)t.note=/[0O1I]/.test(code)?'0・O、1・Iは券面と照合してください。':'画像とコードを照合してください。';
  return duplicate?{filename:t.filename,code,existing:duplicate.filename}:null;
+}
+
+export const needsOcr=(t:RawTicket)=>!!t.ocr_pending&&!t.approved&&t.state==='review';
+export function clearInactiveOcr(state:State){for(const t of state.tickets)if(t.ocr_pending&&!needsOcr(t))t.ocr_pending=false}
+export function replaceCrop(state:State,images:IDBObjectStore,id:string,crop?:Blob){
+ const t=find(state,id),previous=t.crop,shared=state.tickets.some(other=>other.id!==id&&(other.image===previous||other.crop===previous||other.thumbnail===previous));t.crop=crop?t.id+'-crop'+(shared?'-'+crypto.randomUUID():'')+'.jpg':t.image;if(crop)images.put(crop,t.crop);
+ const removed:string[]=[];if(previous!==t.crop&&!state.tickets.some(other=>other.image===previous||other.crop===previous||other.thumbnail===previous)){images.delete(previous);removed.push(previous)}
+ return [...removed,...(crop?[t.crop]:[])];
+}
+export function setStatuses(state:State,ids:string[],target:string){
+ if(!Array.isArray(ids)||!ids.length||ids.length>3000||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'))throw Error('変更する応募券を選択してください');
+ const staged=structuredClone(state);let changed=0;
+ for(const id of ids){const t=find(staged,id);try{if(t.state!==target)changed++;setStatus(staged,id,{state:target})}catch(e){throw Error((t.code||t.filename)+'：'+(e as Error).message)}}
+ Object.assign(state,staged);return {changed};
 }

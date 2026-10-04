@@ -9,8 +9,8 @@ export async function startPwa(){
  if(!import.meta.env.PROD){status='開発プレビューです。オフライン利用は本番ビルドで確認してください。';event();return}
  try{
   registration=await navigator.serviceWorker.register(new URL('sw.js',new URL(import.meta.env.BASE_URL,location.href)),{scope:import.meta.env.BASE_URL,updateViaCache:'none'});
-  registration.addEventListener('updatefound',()=>{const worker=registration?.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'){status=navigator.serviceWorker.controller?'更新があります':'オフライン準備済み';event()}if(worker.state==='redundant'){status='オフラインの準備に失敗しました。オンラインで再読み込みしてください。';event()}})});
-  await navigator.serviceWorker.ready;status=registration.waiting?'更新があります':'オフライン準備済み';event();
+  registration.addEventListener('updatefound',()=>{const worker=registration?.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'){worker.postMessage('PRUNE');status=navigator.serviceWorker.controller?'更新があります':'オフライン準備済み';event()}if(worker.state==='redundant'){status='オフラインの準備に失敗しました。オンラインで再読み込みしてください。';event()}})});
+  await navigator.serviceWorker.ready;registration.waiting?.postMessage('PRUNE');status=registration.waiting?'更新があります':'オフライン準備済み';event();
  }catch{status='オフラインの準備に失敗しました。オンラインで再読み込みしてください。';event()}
 }
 export function PwaStatus(){
