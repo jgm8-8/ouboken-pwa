@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Ouboken · iPhoneショートカット</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f7;color:#253b32;font:16px/1.8 -apple-system,BlinkMacSystemFont,sans-serif}main{max-width:760px;margin:auto;padding:24px 18px 64px}h1{font-size:24px;line-height:1.5}h2{font-size:19px}section{background:white;border:1px solid #dfe5e1;border-radius:14px;padding:18px;margin:18px 0}li{margin:14px 0}ol{padding-left:25px}code{background:#edf3ef;border-radius:4px;padding:2px 5px;overflow-wrap:anywhere}small,.muted{color:#63756b;font-size:13px}summary{cursor:pointer;padding:8px 0;font-weight:600}a{color:#176b57}aside{background:#eef4f0;border-radius:10px;padding:12px;margin:14px 0}.action{display:block;font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf3ef;padding:12px;border-radius:8px}input[type=checkbox]{width:20px;height:20px;vertical-align:middle;margin-right:8px}
+</style></head><body><main>
+<h1>iPhoneで次の行をコピー</h1>
+<p>初回にショートカットを作成します。以後は「次のコードをコピー」を実行し、Safariで貼り付けます。</p>
+<aside>この手順は標準アクションだけを使う構成です。iPhone実機での動作は未検証です。アクション名や設定の位置はiOSのバージョンによって異なる場合があります。</aside>
+<section><h2>1. ファイルを置く</h2><ol>
+<li>Oubokenのホームで「ZIPにまとめる」→「ファイルを出力」を押してZIPを保存します。</li>
+<li>iPhoneの「ファイル」でZIPをタップして展開します。</li>
+<li>「このiPhone内」の保存可能な場所に<code>Ouboken</code>フォルダを用意し、<code>コピー一覧.txt</code>と<code>次の位置.txt</code>を移動します。ローカルの保存先が選べない場合はiCloud Driveに同じフォルダを作成できます。その場合はクラウド同期されます。</li>
+</ol><p>「次の位置.txt」の初期値は<code>1</code>です。コピー一覧は1行1項目、見出し・空行はありません。<code>項目一覧.tsv</code>で、行番号と応募券・入力欄の対応を確認できます。</p><p class="muted">新しい一覧に交換するときは、次の位置.txtも1に戻してください。作業途中で一覧の並びを編集しないでください。</p></section>
+<section><h2>2. 「次のコードをコピー」を作る</h2><p>ショートカットアプリで「＋」を押し、名前を「次のコードをコピー」にします。以下の順でアクションを追加します。<strong>［ ］は前のアクションの出力や変数を選ぶ場所</strong>です。毎回ファイルを選ぶ設定にはせず、最初に保存先フォルダを指定します。</p>
+<ol>
+<li><span class="action">フォルダからファイルを取得</span>フォルダ：Ouboken／パス：<code>コピー一覧.txt</code>。「見つからない場合にエラー」をオン。</li>
+<li><span class="action">入力からテキストを取得</span>入力：［取得したコピー一覧ファイル］。</li>
+<li><span class="action">テキストを分割</span>テキスト：［前のテキスト］／区切り：<strong>改行</strong>。</li>
+<li><span class="action">変数を設定</span>名前：<code>一覧</code>／値：［分割されたテキスト］。</li>
+<li><span class="action">カウント</span>［一覧］の<strong>項目</strong>を数える。続けて「変数を設定」で<code>総数</code>に保存。</li>
+<li><span class="action">フォルダからファイルを取得</span>同じOubokenフォルダ／パス：<code>次の位置.txt</code>。「見つからない場合にエラー」をオン。</li>
+<li><span class="action">入力からテキストを取得</span>入力：［次の位置ファイル］。</li>
+<li><span class="action">テキストを照合</span>パターン：<code>^[1-9][0-9]*$</code>／入力：［位置のテキスト］。続けて「もし」で<strong>一致に値がない</strong>場合、「アラートを表示」で「次の位置.txtを1に戻してください」→「このショートカットを停止」。その後「もし」の終了。</li>
+<li><span class="action">入力から数字を取得 → 変数を設定</span>入力：［位置のテキスト］／変数名：<code>位置</code>。郵便番号や電話番号の本文は数字に変換しません。</li>
+<li><span class="action">もし</span>［位置］が［総数］より大きい場合：「通知を表示」で「すべてコピーしました」→「このショートカットを停止」。その後「もし」の終了。最後の行へ自動で戻さない設定です。</li>
+<li><span class="action">リストから項目を取得</span>リスト：［一覧］／取得：<strong>項目のインデックス</strong>／インデックス：［位置］。</li>
+<li><span class="action">クリップボードにコピー</span>内容：［リストから取得した項目］。「ローカルのみ」が表示される場合はオン。内容は文字列のままコピーします。</li>
+<li><span class="action">計算</span>［位置］<code>＋ 1</code>。</li>
+<li><span class="action">テキスト → 名前を設定</span>テキストに［計算結果］だけを入れる。「名前を設定」で<code>次の位置.txt</code>にする。</li>
+<li><span class="action">ファイルを保存</span>保存するもの：［名前を設定したテキスト］／保存先：同じOubokenフォルダ。「保存先を尋ねる」はオフ、<strong>既存のファイルを上書き</strong>はオン。</li>
+<li><span class="action">通知を表示</span>タイトル：<code>［位置］ / ［総数］をコピー</code>。本文は省略できます。通知を消してもコピー処理は変わりません。</li>
+</ol><aside>1回実行するたびに1行進みます。貼り付けたことは検知しません。連続実行せず、完了を待って貼り付けてください。保存先への初回アクセスは、iPhoneで許可が必要な場合があります。</aside></section>
+<section><h2>3. 「同じ行を再コピー」</h2><details><summary>作成手順を開く</summary><p>「次のコードをコピー」を複製して名前を変更します。</p><ol>
+<li>「位置が総数より大きい場合」の終了処理を削除します。</li>
+<li>位置の取得後に「もし［位置］が1の場合」→「まだコピーしていません」と通知→停止を追加します。</li>
+<li>「計算」で<code>［位置］− 1</code>を求め、変数<code>再コピー位置</code>へ保存します。もし再コピー位置が総数より大きい場合は「位置ファイルを確認してください」と通知して停止します。</li>
+<li>リストから項目を取得するインデックスを［再コピー位置］に変更します。</li>
+<li>クリップボードへのコピー後の「＋1」「テキスト」「名前を設定」「ファイルを保存」を削除します。最後に「同じ行をコピーしました」と通知します。</li>
+</ol><p>次の位置は変更せず、最後にコピーした行を再コピーします。</p></details></section>
+<section><h2>4. 「最初からやり直す」</h2><details><summary>作成手順を開く</summary><p>新しいショートカットを作成します。</p><ol>
+<li>「メニューから選択」：メッセージ「コピー位置を最初に戻しますか？」／項目「戻す」「キャンセル」。</li>
+<li>「戻す」の中：テキスト<code>1</code>→名前を設定<code>次の位置.txt</code>→ファイルを保存（同じフォルダ、保存先を尋ねるオフ、上書きオン）→通知「最初の行に戻しました」。</li>
+<li>「キャンセル」の中：「このショートカットを停止」。</li>
+</ol><p>一覧の中身を削除せず、読む位置だけを戻します。</p></details></section>
+<section><h2>5. アクションボタンに割り当てる</h2><p>iPhone 15 Pro：「設定」→「アクションボタン」→「ショートカット」→「次のコードをコピー」を選択します。応募ページを開いたままボタンを長押しし、入力欄へ貼り付けます。</p><p>最初は下記3行のダミーファイルで試してください。元の2ファイルは別フォルダに保管し、テスト後は本番ファイルを置いて位置を1に戻します。</p><pre>TEST000001
+TEST000002
+TEST000003</pre><p><label><input type="checkbox">1回目はTEST000001、2回目はTEST000002</label><br><label><input type="checkbox">再コピーでTEST000002をコピーし、次はTEST000003</label><br><label><input type="checkbox">4回目は終了通知になり、最初へ循環しない</label><br><label><input type="checkbox">リセット後はTEST000001から再開</label></p><p class="muted">選択式の回答はSafariで選択します。テキスト入力モードでは、空欄を省略し、文章内の改行を空白に変換しています。行の対応は項目一覧.tsvで確認してください。コピーの位置と応募の進捗は別です。</p></section>
+<section><h2>Appleの手順</h2><p><a href="https://support.apple.com/ja-jp/guide/shortcuts/apd9ba41d21b/ios">リストの項目を取得する</a><br><a href="https://support.apple.com/en-gb/guide/shortcuts/apdfea15680b/ios">アクションボタンで実行する</a><br><a href="https://support.apple.com/ja-jp/guide/shortcuts/-apdf01f8c054/ios">作成したショートカットを友人へ共有する</a></p><p class="muted">友人への共有は、iPhoneで動作を確認してからショートカットアプリの共有機能で行えます。このWindows環境からの登録・署名済みショートカット配布は行っていません。</p></section>
+</main></body></html>

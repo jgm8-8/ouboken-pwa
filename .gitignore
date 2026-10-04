@@ -1,0 +1,6 @@
+node_modules/
+dist/
+release/
+public/ocr/
+public/THIRD_PARTY_NOTICES.txt
+test-results/
