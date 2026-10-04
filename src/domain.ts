@@ -10,6 +10,12 @@ export function effective(t:RawTicket,state:State){
  return {...t,answers:locked?t.payload!.answers:{...state.survey.answers,...t.answers},character:locked?t.payload!.character:(t.character||state.survey.character||''),answer_overrides:t.answers,character_override:t.character};
 }
 export function find(state:State,id:string){const t=state.tickets.find(t=>t.id===id);if(!t)throw Error('応募券が見つかりません');return t}
+export function removeTicket(state:State,images:IDBObjectStore,id:string){
+ const ticket=find(state,id);state.tickets=state.tickets.filter(t=>t.id!==id);
+ const unused=[...new Set([ticket.image,ticket.crop])].filter(name=>!state.tickets.some(t=>t.image===name||t.crop===name));
+ for(const name of unused)images.delete(name);
+ return unused;
+}
 export function unlocked(t:RawTicket){if(['done','unknown'].includes(t.state))throw Error('記録済みの内容は変更できません。状態を見直してから編集してください。')}
 export function validateAnswers(answers:Answers){
  for(const q of schema.questions){const value=answers[q.id]??(q.type==='multi'?[]:'');

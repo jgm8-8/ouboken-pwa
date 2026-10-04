@@ -1,5 +1,5 @@
-import {readState,mutate,primeImages} from './store';
-import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers} from './domain';
+import {readState,mutate,primeImages,releaseImageUrls} from './store';
+import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers,removeTicket} from './domain';
 import {preview,logicalPlan,makeZip,recordExport,safeCell} from './export';
 import type {ExportBody} from './export';
 import {upload,job,resume,retryUnconfirmed} from './ocr';
@@ -16,6 +16,7 @@ export async function api(path:string,method='GET',body:any=undefined):Promise<a
  if(path==='/shortcuts/preview')return preview(await readState(),body);
  const match=path.match(/^\/tickets\/([^/]+)(?:\/(confirm|status))?$/);
  if(match){const [,id,action]=match;if(method==='GET'){const state=await readState();await primeImages();return effective(find(state,id),state)}
+  if(method==='DELETE'&&!action){const names=await mutate((state,images)=>removeTicket(state,images,id));releaseImageUrls(names);return {ok:true}}
   return mutate(state=>{if(action==='confirm')confirm(state,id,body);else if(action==='status')setStatus(state,id,body);else if(method==='PUT')editTicket(state,id,body);else throw Error('この操作には対応していません');return {ok:true}});
  }
  throw Error('この操作には対応していません');

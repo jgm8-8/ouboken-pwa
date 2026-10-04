@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {unzipSync,strFromU8} from 'fflate';
 import {emptyState,mutate,readState,readBackup} from '../src/store';
 import type {RawTicket,State} from '../src/store';
-import {schema,confirm,effective,setStatus} from '../src/domain';
+import {schema,confirm,effective,setStatus,removeTicket} from '../src/domain';
 import {logicalPlan,makeZip,recordExport,preview} from '../src/export';
 import {encodeBackup,decodeBackup,restoreBackup,validateBackup} from '../src/backup';
 
@@ -53,3 +53,19 @@ test('破損バックアップを拒否し、復元前の台帳を保つ',async(
  const missing=await readBackup();missing.images.delete('first.jpg');assert.throws(()=>validateBackup(missing.state,missing.images),/写真/);
 });
 
+test('応募券の削除は写真と切り抜きも消し、他の券と共通情報を保つ',async()=>{
+ const original=await seed();await mutate((s,images)=>{s.tickets[0].crop='first-crop.jpg';images.put(new Blob(['crop']),'first-crop.jpg');s.tickets[0].ocr_pending=true});
+ await mutate((s,images)=>removeTicket(s,images,'first'));
+ const after=await readBackup();assert.deepEqual(after.state.tickets,[original.tickets[1]]);assert.deepEqual(after.state.profile,original.profile);assert.deepEqual(after.state.survey,original.survey);
+ assert.equal(after.images.has('first.jpg'),false);assert.equal(after.images.has('first-crop.jpg'),false);assert.equal(await after.images.get('second.jpg')!.text(),'photo');
+ validateBackup(after.state,after.images);
+});
+test('削除のトランザクションが失敗すれば台帳と画像を両方残す',async()=>{
+ await seed();const original=await readBackup();await assert.rejects(mutate((s,images)=>{removeTicket(s,images,'first');throw Error('中断')}),/中断/);
+ const after=await readBackup();assert.deepEqual(after.state,original.state);assert.equal(await after.images.get('first.jpg')!.text(),'photo');
+ await assert.rejects(mutate((s,images)=>removeTicket(s,images,'missing')),/見つかりません/);assert.deepEqual(await readState(),original.state);
+});
+test('他の券が参照する画像は削除しない',async()=>{
+ await seed();await mutate(s=>{s.tickets[1].crop=s.tickets[0].image});await mutate((s,images)=>removeTicket(s,images,'first'));
+ const after=await readBackup();assert.equal(after.images.has('first.jpg'),true);validateBackup(after.state,after.images);
+});

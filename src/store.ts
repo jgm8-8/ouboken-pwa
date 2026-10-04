@@ -48,6 +48,7 @@ const urls=new Map<string,string>();
 export function imageUrl(name:string){return urls.get(name)||''}
 export async function primeImages(){for(const [name,blob] of await readImages())if(!urls.has(name))urls.set(name,URL.createObjectURL(blob))}
 export function clearImageUrls(){for(const url of urls.values())URL.revokeObjectURL(url);urls.clear()}
+export function releaseImageUrls(names:string[]){for(const name of names){const url=urls.get(name);if(url)URL.revokeObjectURL(url);urls.delete(name)}}
 export function now(){return new Date().toISOString().slice(0,19).replace('T',' ')}
 export function uniqueId(){return crypto.randomUUID()}
 export async function digest(value:BufferSource){const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',value));return Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('')}
