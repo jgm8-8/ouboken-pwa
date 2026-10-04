@@ -2,6 +2,9 @@ import schema from './schema.json';
 import type {Answers,Payload,RawTicket,State} from './store';
 import {now} from './store';
 export {schema};
+export function queueOcrRetry(state:State){
+ let count=0;for(const t of state.tickets)if(!t.approved&&t.state==='review'){t.ocr_pending=true;t.note='読み取り待ち';count++}return count;
+}
 export function effective(t:RawTicket,state:State){
  const locked=['done','unknown'].includes(t.state)&&t.payload;
  return {...t,answers:locked?t.payload!.answers:{...state.survey.answers,...t.answers},character:locked?t.payload!.character:(t.character||state.survey.character||''),answer_overrides:t.answers,character_override:t.character};

@@ -2,13 +2,14 @@ import {readState,mutate,primeImages} from './store';
 import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers} from './domain';
 import {preview,logicalPlan,makeZip,recordExport,safeCell} from './export';
 import type {ExportBody} from './export';
-import {upload,job,resume} from './ocr';
+import {upload,job,resume,retryUnconfirmed} from './ocr';
 export {imageUrl} from './store';
 export async function api(path:string,method='GET',body:any=undefined):Promise<any>{
  if(path==='/bootstrap'){const state=await readState();return {token:'local',profile:state.profile,survey:state.survey,llm:{model:'',has_key:false},schema,job:await resume()}}
  if(path==='/tickets'&&method==='GET'){const state=await readState();await primeImages();return state.tickets.map(t=>effective(t,state))}
  if(path==='/settings'&&method==='PUT')return mutate(state=>{validateAnswers(body.survey?.answers??{});if(body.survey?.character&&!schema.characters.includes(body.survey.character))throw Error('キャラクターを選択してください');state.profile=Object.fromEntries(schema.profile.map(([key])=>[String(key),String(body.profile?.[String(key)]??'').slice(0,255)]));state.survey=body.survey??{};return {ok:true}});
  if(path==='/upload'&&method==='POST')return upload((body as FormData).getAll('files')as File[]);
+ if(path==='/ocr/retry'&&method==='POST')return retryUnconfirmed();
  if(path.startsWith('/jobs/'))return job(path.slice(6));
  if(path==='/drafts')return {variants:[]};
  if(path==='/generate')throw Error('PWA試作版では文章生成に接続していません。文章は直接編集できます。');
