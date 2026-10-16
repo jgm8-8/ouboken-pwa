@@ -2,6 +2,7 @@ import {zipSync,unzipSync,strToU8,strFromU8} from 'fflate';
 import {readBackup,mutate,clearImageUrls} from './store';
 import {schema,validateAnswers} from './domain';
 import type {State,RawTicket} from './store';
+import {validateWritingNotes} from './writing';
 const MAGIC=strToU8('OUBOKEN-PWA-BACKUP-2\n');
 const LEGACY_MAGIC=strToU8('OUBOKEN-PWA-BACKUP-1\n');
 const LIMIT=250_000_000;
@@ -26,6 +27,7 @@ export function validateBackup(value:unknown,images:Map<string,Blob>):asserts va
  for(const raw of value.tickets){const t=raw as RawTicket;
   if(!isRecord(t)||typeof t.id!=='string'||ids.has(t.id)||typeof t.hash!=='string'||!/^[a-f0-9]{64}$/.test(t.hash)||typeof t.filename!=='string'||typeof t.note!=='string'||typeof t.created!=='string'||typeof t.qr!=='string'||typeof t.code!=='string'||t.code&&!/^[A-Za-z0-9]{1,64}$/.test(t.code)||typeof t.code2!=='string'||t.code2.length>4000||t.approved===1&&(!t.code||t.code2!==schema.code2)||![0,1].includes(t.approved)||!['review','ready','prepared','done','unknown'].includes(t.state)||!isRecord(t.ocr)||!Array.isArray(t.ocr.lines)||t.ocr.lines.some(line=>typeof line!=='string')||!Array.isArray(t.ocr.candidates)||!Array.isArray(t.history))throw Error('応募券の形式が正しくありません');
   if(t.thumbnail!==undefined&&typeof t.thumbnail!=='string')throw Error('一覧画像の形式が正しくありません');
+  if(t.writing_notes!==undefined)validateWritingNotes(t.writing_notes);
   ids.add(t.id);const pair=t.code+'|'+t.code2;if(t.code&&codes.has(pair))throw Error('バックアップに重複コードがあります');if(t.code)codes.add(pair);
   validateAnswers(t.answers);if(t.character&&!schema.characters.includes(t.character))throw Error('キャラクターの形式が正しくありません');
   for(const name of [t.image,t.crop,...(t.thumbnail?[t.thumbnail]:[])])if(typeof name!=='string'||! /^[A-Za-z0-9-]{1,80}\.jpg$/.test(name)||!images.has(name))throw Error('バックアップの写真が不足しています');

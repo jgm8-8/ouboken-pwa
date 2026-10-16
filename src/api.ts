@@ -4,6 +4,7 @@ import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers,remov
 import {preview,logicalPlan,makeZip,recordExport,safeCell} from './export';
 import type {ExportBody} from './export';
 import {upload,job,resume,retryUnconfirmed} from './ocr';
+import {writingNotes,saveWritingNotes} from './writing';
 export {imageUrl} from './store';
 export async function api(path:string,method='GET',body:any=undefined):Promise<any>{
  if(path==='/bootstrap'){await pruneImages();const state=await readState();return {token:'local',profile:state.profile,survey:state.survey,llm:{model:llmConfig().model,has_key:llmConfig().has_key},schema,job:await resume()}}
@@ -18,10 +19,10 @@ export async function api(path:string,method='GET',body:any=undefined):Promise<a
  if(path==='/shortcuts/preview')return preview(await readState(),body);
  if(path==='/tickets/status/preview')return setStatuses(await readState(),body.ids,body.state);
  if(path==='/tickets/status'&&method==='POST')return mutate(state=>setStatuses(state,body.ids,body.state));
- const match=path.match(/^\/tickets\/([^/]+)(?:\/(confirm|status|character))?$/);
- if(match){const [,id,action]=match;if(method==='GET'){const state=await readState();await primeImages();return effective(find(state,id),state)}
+ const match=path.match(/^\/tickets\/([^/]+)(?:\/(confirm|status|character|writing))?$/);
+ if(match){const [,id,action]=match;if(method==='GET'){const state=await readState();if(action==='writing')return {notes:writingNotes(find(state,id),state)};await primeImages();return effective(find(state,id),state)}
   if(method==='DELETE'&&!action){const names=await mutate((state,images)=>removeTicket(state,images,id));releaseImageUrls(names);return {ok:true}}
-  return mutate(state=>{if(action==='confirm')confirm(state,id,body);else if(action==='status')setStatus(state,id,body);else if(action==='character'&&method==='PUT')setTicketCharacter(state,id,body.character);else if(method==='PUT')editTicket(state,id,body);else throw Error('この操作には対応していません');return {ok:true}});
+  return mutate(state=>{if(action==='confirm')confirm(state,id,body);else if(action==='status')setStatus(state,id,body);else if(action==='character'&&method==='PUT')setTicketCharacter(state,id,body.character);else if(action==='writing'&&method==='PUT')saveWritingNotes(state,id,body.notes);else if(method==='PUT')editTicket(state,id,body);else throw Error('この操作には対応していません');return {ok:true}});
  }
  throw Error('この操作には対応していません');
 }

@@ -15,45 +15,8 @@ import {StoragePanel,useStorageWarnings} from './StoragePanel';
 import {TicketThumbnail} from './TicketThumbnail';
 import {DeleteAllPanel} from './DeleteAllPanel';
 import {BatchStatusDialog} from './BatchStatusDialog';
-// Serialize writes so a slow response cannot overwrite a newer edit.
-function useAutosave(value:unknown, dirty:boolean, ready:boolean, write:(value:any)=>Promise<void>, clean:()=>void){
- const serialized=JSON.stringify(value);
- const latest=useRef({serialized,dirty,ready,write,clean});
- latest.current={serialized,dirty,ready,write,clean};
- const saved=useRef(serialized), flight=useRef<Promise<void>|null>(null);
- const [status,setStatus]=useState(''),[failure,setFailure]=useState('');
- const flush=async():Promise<void>=>{
-  if(flight.current){await flight.current;return flush()}
-  if(!latest.current.ready||!latest.current.dirty)return;
-  if(saved.current===latest.current.serialized){latest.current.clean();return}
-  const task=(async()=>{
-   setStatus('保存中…');setFailure('');
-   try{
-    while(latest.current.ready&&latest.current.dirty&&saved.current!==latest.current.serialized){
-     const snapshot=latest.current.serialized;
-     await latest.current.write(JSON.parse(snapshot));saved.current=snapshot;
-    }
-    latest.current.clean();setStatus('自動保存済み');
-   }catch(e){setStatus('保存できませんでした');setFailure((e as Error).message);throw e}
-  })();
-  flight.current=task;
-  try{await task}finally{flight.current=null}
- };
- useEffect(()=>{
-  if(!dirty){saved.current=serialized;return}
-  setStatus('保存待ち…');
-  const timer=setTimeout(()=>{void flush().catch(()=>{})},600);
-  return()=>clearTimeout(timer);
- },[serialized,dirty,ready]);
- useEffect(()=>{
-  const warn=(e:BeforeUnloadEvent)=>{if(latest.current.dirty){e.preventDefault();e.returnValue=''}};
-  const hide=()=>{if(document.visibilityState==='hidden')void flush().catch(()=>{})};
-  window.addEventListener('beforeunload',warn);document.addEventListener('visibilitychange',hide);
-  return()=>{window.removeEventListener('beforeunload',warn);document.removeEventListener('visibilitychange',hide)};
- },[]);
- return {flush,status,failure};
-}
-function SaveStatus({save}:{save:ReturnType<typeof useAutosave>}){return <div className="save-status" role="status"><span>{save.status}</span>{save.failure&&<><span className="save-error">{save.failure}</span><button className="secondary" onClick={()=>void save.flush().catch(()=>{})}>再試行</button></>}</div>}
+import {useAutosave,SaveStatus} from './autosave';
+import {WritingHelper} from './WritingHelper';
 const states:Record<string,string>={review:'要確認',ready:'確認済み',prepared:'出力済み',done:'応募済み（手動）',unknown:'結果不明'};
 import {characterSummary} from './character-summary';
 function App(){
@@ -137,10 +100,11 @@ function ShortcutExport({ids,onClose,onComplete,onResolve}:{ids:string[],onClose
 
 function TicketDetail({id,boot,refresh,run,busy,notify,copy,registerFlush,onBack,onExport,onDelete}:{id:string,boot:Boot,refresh:()=>Promise<void>,run:(fn:()=>Promise<void>)=>Promise<void>,busy:boolean,notify:(s:string)=>void,copy:(s:string)=>Promise<void>,registerFlush:(fn:(()=>Promise<void>)|null)=>void,onBack:()=>void,onExport:()=>void,onDelete:()=>void}){
  const [t,setT]=useState<TicketData|null>(null),[code,setCode]=useState(''),[code2,setCode2]=useState(''),[approved,setApproved]=useState(false),[dirty,setDirty]=useState(false);
+ const writingFlush=useRef<null|(()=>Promise<void>)>(null);
  const load=async()=>{const x=await api('/tickets/'+id);setT(x);setCode(x.code);setCode2(x.code2);setApproved(!!x.approved);setDirty(false)};
  useEffect(()=>{void run(load)},[id]);
  const auto=useAutosave({code,code2,approved},dirty,!!t,async value=>{await api('/tickets/'+id,'PUT',{...value,character:t!.character_override||'',answers:t!.answer_overrides||{}});setT(await api('/tickets/'+id));await refresh()},()=>setDirty(false));
- useEffect(()=>{registerFlush(auto.flush);return()=>registerFlush(null)},[]);
+ useEffect(()=>{registerFlush(async()=>{await auto.flush();await writingFlush.current?.()});return()=>registerFlush(null)},[]);
  if(!t)return <div className="detail">読み込み中…</div>;
  const locked=['done','unknown'].includes(t.state);
  return <div className="detail"><div className="detail-heading"><strong className="serial">{t.code||'未読取'}</strong><span className={'badge '+t.state}>{states[t.state]}</span></div>
@@ -148,6 +112,7 @@ function TicketDetail({id,boot,refresh,run,busy,notify,copy,registerFlush,onBack
  <label className="field status-control">ステータス<select aria-label="ステータス" disabled={busy} value={t.state} onChange={e=>{const state=e.target.value;void run(async()=>{await auto.flush();await api('/tickets/'+id+'/status','POST',{state});await load();await refresh();notify('ステータスを変更しました')})}}>{Object.entries(states).map(([state,label])=><option key={state} value={state} disabled={state==='ready'&&!t.approved||['prepared','done','unknown'].includes(state)&&!t.payload&&state!==t.state}>{label}</option>)}</select></label>
  {locked&&<p className="muted">コードを直す場合は「確認済み」に戻してください。</p>}
  <section className="panel serial-fields">{([['シリアルコード①',code,setCode],['シリアルコード②',code2,setCode2]] as const).map(([label,value,setValue])=><div className="serial-field" key={label}><label className="field">{label}<input className="serial" disabled={busy||locked} value={value} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={e=>{setValue(e.target.value);setApproved(false);setDirty(true)}}/></label><button className="secondary" disabled={!value||dirty} aria-label={label+'をコピー'} onClick={()=>void copy(value)}><Copy size={17}/></button></div>)}<label className="check-line"><input type="checkbox" disabled={busy||locked} checked={approved} onChange={e=>{setApproved(e.target.checked);setDirty(true)}}/>画像とコードを照合済み</label><SaveStatus save={auto}/></section>
+ <WritingHelper id={id} busy={busy} copy={copy} registerFlush={fn=>{writingFlush.current=fn}}/>
  <details className="detail-code"><summary>応募券の写真</summary><div className="photo-review"><a href={imageUrl(t.image)} target="_blank" rel="noreferrer"><img src={imageUrl(t.image)} alt={t.filename+' 原画像'}/><span>原画像を拡大 <ArrowUpRight size={14}/></span></a><img src={imageUrl(t.crop)} alt="コードの切り抜き"/></div></details>
  <div className="detail-save"><button className="secondary" disabled={busy} onClick={onBack}>一覧に戻る</button>{!locked&&<button className="primary" disabled={busy} onClick={onExport}>この券を出力</button>}</div>
  <a className="external-link" href={boot.schema.url} target="_blank" rel="noreferrer">応募ページを開く<ArrowUpRight size={16}/></a>
