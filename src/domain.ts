@@ -7,7 +7,7 @@ export function queueOcrRetry(state:State){
 }
 export function effective(t:RawTicket,state:State){
  const locked=['done','unknown'].includes(t.state)&&t.payload;
- return {...t,answers:locked?t.payload!.answers:{...state.survey.answers,...t.answers},character:locked?t.payload!.character:(t.character||state.survey.character||''),answer_overrides:t.answers,character_override:t.character};
+ return {...t,answers:locked?t.payload!.answers:{...state.survey.answers,...t.answers},character:t.payload?t.payload.character:(t.character||state.survey.character||''),answer_overrides:t.answers,character_override:t.character};
 }
 export function find(state:State,id:string){const t=state.tickets.find(t=>t.id===id);if(!t)throw Error('応募券が見つかりません');return t}
 export function removeTicket(state:State,images:IDBObjectStore,id:string){
@@ -62,9 +62,10 @@ export function setStatus(state:State,id:string,body:any){
  if(target==='ready'){validateCode(state,t,t.code,t.code2,true);if(!t.approved)throw Error('先に画像とコードを照合してください')}
  if(['done','unknown'].includes(target)&&!t.payload&&t.approved){const last=t.history[0];if(last?.state==='exported_codes'&&last.snapshot?.code===t.code&&last.snapshot.code2===t.code2)t.payload=structuredClone(last.snapshot)}
  if(['prepared','done','unknown'].includes(target)&&!t.payload)throw Error('内容を編集した場合は、もう一度iPhone用ファイルを出力してください');
+ if(target==='done'&&!schema.characters.includes(effective(t,state).character))throw Error('先に応募するキャラを記録してください');
  const snapshot=t.payload?structuredClone(t.payload):null;
  // Code-only exports do not contain answers; retain the original editable text.
- if(['done','unknown'].includes(t.state)&&['review','ready','prepared'].includes(target)&&snapshot&&(snapshot.character||Object.keys(snapshot.answers).length||Object.keys(snapshot.profile).length)){t.answers=structuredClone(snapshot.answers);t.character=snapshot.character}
+ if(['done','unknown'].includes(t.state)&&['review','ready','prepared'].includes(target)&&snapshot){if(!snapshot.codes_only&&(Object.keys(snapshot.answers).length||Object.keys(snapshot.profile).length))t.answers=structuredClone(snapshot.answers);if(snapshot.character)t.character=snapshot.character}
  if(['review','ready'].includes(target)){
   t.payload=null;if(target==='review')t.approved=0;
  }
@@ -93,4 +94,15 @@ export function setStatuses(state:State,ids:string[],target:string){
  const staged=structuredClone(state);let changed=0;
  for(const id of ids){const t=find(staged,id);try{if(t.state!==target)changed++;setStatus(staged,id,{state:target})}catch(e){throw Error((t.code||t.filename)+'：'+(e as Error).message)}}
  Object.assign(state,staged);return {changed};
+}
+export function setTicketCharacter(state:State,id:string,character:string){
+ if(typeof character!=='string'||!schema.characters.includes(character))throw Error('応募するキャラを選択してください');
+ const t=find(state,id),previous=effective(t,state).character;if(previous===character&&t.character===character)return;
+ const snapshot=t.payload?structuredClone(t.payload):null;
+ t.character=character;if(t.payload)t.payload.character=character;
+ t.history.unshift({state:'character_changed',note:'応募するキャラを変更：'+(previous||'未記録')+' → '+character,created:now(),snapshot});
+}
+export function setCommonCharacter(state:State,character:string){
+ if(typeof character!=='string'||character&&!schema.characters.includes(character))throw Error('応募するキャラを選択してください');
+ state.survey.character=character;
 }

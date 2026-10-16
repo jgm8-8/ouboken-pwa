@@ -39,7 +39,7 @@ test('プレビュー後に入力が変われば出力記録を書かない',asy
 });
 test('コードだけの出力は住所不要で、未確認券の黙った省略を防ぐ',()=>{
  const s=fixture();s.profile={};s.tickets[1].approved=0;const p=logicalPlan(s,{mode:'codes'});assert.equal(p.issues[0].page,'review');assert.throws(()=>makeZip(p),/確認/);
- const body={mode:'codes' as const,exclude_unconfirmed:true};const valid=logicalPlan(s,body);assert.equal(valid.ticket_count,1);assert.equal(valid.entries.length,1);recordExport(s,body,JSON.stringify(valid));setStatus(s,'first',{state:'done'});assert.equal(s.tickets[0].payload!.code,'00ABC12345');
+ const body={mode:'codes' as const,exclude_unconfirmed:true};const valid=logicalPlan(s,body);assert.equal(valid.ticket_count,1);assert.equal(valid.entries.length,2);recordExport(s,body,JSON.stringify(valid));setStatus(s,'first',{state:'done'});assert.equal(s.tickets[0].payload!.code,'00ABC12345');
 });
 test('パスワードなしのバックアップで写真・回答・履歴を復元できる',async()=>{
  await seed();await mutate(s=>{s.tickets[0].answers.c_q29='個別の感想';const plan=logicalPlan(s,{});recordExport(s,{},JSON.stringify(plan));setStatus(s,'first',{state:'done'})});

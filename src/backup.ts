@@ -29,7 +29,7 @@ export function validateBackup(value:unknown,images:Map<string,Blob>):asserts va
   ids.add(t.id);const pair=t.code+'|'+t.code2;if(t.code&&codes.has(pair))throw Error('バックアップに重複コードがあります');if(t.code)codes.add(pair);
   validateAnswers(t.answers);if(t.character&&!schema.characters.includes(t.character))throw Error('キャラクターの形式が正しくありません');
   for(const name of [t.image,t.crop,...(t.thumbnail?[t.thumbnail]:[])])if(typeof name!=='string'||! /^[A-Za-z0-9-]{1,80}\.jpg$/.test(name)||!images.has(name))throw Error('バックアップの写真が不足しています');
-  for(const payload of [t.payload,...t.history.map(h=>h.snapshot)])if(payload){if(!isRecord(payload)||typeof payload.code!=='string'||typeof payload.code2!=='string'||typeof payload.character!=='string')throw Error('履歴の形式が正しくありません');stringMap(payload.profile);validateAnswers(payload.answers)}
+  for(const payload of [t.payload,...t.history.map(h=>h.snapshot)])if(payload){if(!isRecord(payload)||typeof payload.code!=='string'||typeof payload.code2!=='string'||typeof payload.character!=='string'||payload.codes_only!==undefined&&typeof payload.codes_only!=='boolean')throw Error('履歴の形式が正しくありません');stringMap(payload.profile);validateAnswers(payload.answers)}
   if(t.history.some(h=>!isRecord(h)||typeof h.state!=='string'||typeof h.note!=='string'||typeof h.created!=='string'))throw Error('履歴の形式が正しくありません');
  }
 }

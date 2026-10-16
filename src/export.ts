@@ -1,5 +1,5 @@
 import {zipSync,strToU8} from 'fflate';
-import {schema,effective,profileIssues,payloadFor,find} from './domain';
+import {schema,effective,profileIssues,payloadFor,find,validateCode} from './domain';
 import {digest,now} from './store';
 import type {Payload,State} from './store';
 export type ExportBody={ids?:string[],mode?:'fields'|'codes',exclude_unconfirmed?:boolean,fingerprint?:string};
@@ -17,10 +17,11 @@ export function logicalPlan(state:State,body:ExportBody){
  const active=rows.filter(t=>!['done','unknown'].includes(t.state)),unchecked=active.filter(t=>!t.approved||!t.code),confirmed=active.filter(t=>t.approved&&t.code);
  const issues=unchecked.length&&!body.exclude_unconfirmed?[{page:'review',message:`未確認 ${unchecked.length}枚`,count:unchecked.length}as{page:string,message:string,id?:string,count?:number}]:[];
  if(mode==='fields'&&confirmed.length){issues.push(...profileIssues(state.profile));const missing=confirmed.filter(t=>!effective(t,state).character);if(missing.length)issues.push({page:'survey',message:`希望キャラクター未設定 ${missing.length}枚`})}
+ if(mode==='codes'&&confirmed.length){const missing=confirmed.filter(t=>!schema.characters.includes(effective(t,state).character));if(missing.length)issues.push({page:'character',message:`応募するキャラ未設定 ${missing.length}枚`});for(const t of confirmed)try{validateCode(state,t,t.code,t.code2,true)}catch{issues.push({page:'review',message:`${t.code}：コード①・②を確認してください`})}}
  const snapshots:Record<string,Payload>={},entries:{line:number,ticket_id:string,code:string,filename:string,label:string,value:string}[]=[],tickets:{code:string,filename:string,start:number,end:number}[]=[];
  if(mode==='codes'||!issues.some(i=>['profile','survey'].includes(i.page)))for(const t of confirmed){
-  const payload=mode==='fields'?payloadFor(t,state):{profile:{},answers:{},character:'',code:t.code,code2:t.code2};snapshots[t.id]=payload;
-  const fields=mode==='fields'?copyFields(payload):[['シリアルコード①',t.code]];
+  const payload=mode==='fields'?payloadFor(t,state):{profile:{},answers:{},character:effective(t,state).character,code:t.code,code2:t.code2,codes_only:true};snapshots[t.id]=payload;
+  const fields=mode==='fields'?copyFields(payload):[['シリアルコード①',t.code],['シリアルコード②',t.code2]];
   const start=entries.length+1;for(const [label,value]of fields)entries.push({line:entries.length+1,ticket_id:t.id,code:t.code,filename:t.filename,label,value:oneLine(value)});
   tickets.push({code:t.code,filename:t.filename,start,end:entries.length});
  }
@@ -31,10 +32,12 @@ export const safeCell=(value:unknown)=>{const s=String(value);return (/^\s*[=+@-
 export function makeZip(plan:ReturnType<typeof logicalPlan>){
  if(plan.issues.length)throw Error('出力前の確認が必要です');if(!plan.count)throw Error('出力対象の券がありません');
  const mapping=[['行番号','シリアルコード①','写真','項目'],...plan.entries.map(e=>[e.line,e.code,e.filename,e.label])].map(row=>row.map(safeCell).join('\t')).join('\n')+'\n';
- return new Blob([zipSync({'コピー一覧.txt':strToU8(plan.entries.map(e=>e.value).join('\n')),'次の位置.txt':strToU8('1'),'項目一覧.tsv':strToU8(mapping),'はじめに.txt':strToU8(`${plan.ticket_count}枚 / ${plan.count}行\nコピー一覧.txtと次の位置.txtを同じOubokenフォルダへ保存してください。\n一覧を交換するときは次の位置.txtも置き換えてください。\n空欄と選択式回答は省略しています。\n応募はSafariで手動で行います。\n`)},{level:6})as Uint8Array<ArrayBuffer>],{type:'application/zip'});
+ const files={'コピー一覧.txt':strToU8(plan.entries.map(e=>e.value).join('\n')),'次の位置.txt':strToU8('1')};
+ return new Blob([zipSync(plan.mode==='codes'?files:{...files,'項目一覧.tsv':strToU8(mapping),'はじめに.txt':strToU8(`${plan.ticket_count}枚 / ${plan.count}行\nコピー一覧.txtと次の位置.txtを同じOubokenフォルダへ保存してください。\n一覧を交換するときは次の位置.txtも置き換えてください。\n空欄と選択式回答は省略しています。\n応募はSafariで手動で行います。\n`)},{level:6})as Uint8Array<ArrayBuffer>],{type:'application/zip'});
 }
 export function recordExport(state:State,body:ExportBody,expected:string){
  // Comparing the entire logical plan avoids a crypto await inside the IDB transaction.
  const plan=logicalPlan(state,body);if(JSON.stringify(plan)!==expected)throw Error('出力内容が変わりました。プレビューを開き直してください。');
- for(const [id,payload]of Object.entries(plan.snapshots)){const t=find(state,id);if(plan.mode==='fields'){t.payload=structuredClone(payload);t.state='prepared'}t.history.unshift({state:plan.mode==='fields'?'prepared':'exported_codes',note:plan.mode==='fields'?'iPhone用に一括出力（コード・住所・自由記述）':'iPhone用に一括出力（コードのみ）',created:now(),snapshot:structuredClone(payload)})}
+ if(plan.issues.length||!plan.count)throw Error('出力前の確認が必要です');
+ for(const [id,payload]of Object.entries(plan.snapshots)){const t=find(state,id);t.payload=structuredClone(payload);t.state='prepared';if(plan.mode==='codes')t.character=payload.character;t.history.unshift({state:plan.mode==='fields'?'prepared':'exported_codes',note:plan.mode==='fields'?'iPhone用に一括出力（コード・住所・自由記述）':'コード①・②を出力：'+payload.character,created:now(),snapshot:structuredClone(payload)})}
 }

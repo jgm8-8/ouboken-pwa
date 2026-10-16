@@ -1,6 +1,6 @@
 import {llmConfig,generate} from './llm';
 import {readState,mutate,primeImages,releaseImageUrls,pruneImages} from './store';
-import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers,removeTicket,setStatuses} from './domain';
+import {schema,effective,find,editTicket,confirm,setStatus,validateAnswers,removeTicket,setStatuses,setTicketCharacter,setCommonCharacter} from './domain';
 import {preview,logicalPlan,makeZip,recordExport,safeCell} from './export';
 import type {ExportBody} from './export';
 import {upload,job,resume,retryUnconfirmed} from './ocr';
@@ -9,6 +9,7 @@ export async function api(path:string,method='GET',body:any=undefined):Promise<a
  if(path==='/bootstrap'){await pruneImages();const state=await readState();return {token:'local',profile:state.profile,survey:state.survey,llm:{model:llmConfig().model,has_key:llmConfig().has_key},schema,job:await resume()}}
  if(path==='/tickets'&&method==='GET'){const state=await readState();await primeImages();return state.tickets.map(t=>effective(t,state))}
  if(path==='/settings'&&method==='PUT')return mutate(state=>{validateAnswers(body.survey?.answers??{});if(body.survey?.character&&!schema.characters.includes(body.survey.character))throw Error('キャラクターを選択してください');state.profile=Object.fromEntries(schema.profile.map(([key])=>[String(key),String(body.profile?.[String(key)]??'').slice(0,255)]));state.survey=body.survey??{};return {ok:true}});
+ if(path==='/character'&&method==='PUT')return mutate(state=>{setCommonCharacter(state,body.character);return {ok:true}});
  if(path==='/upload'&&method==='POST')return upload((body as FormData).getAll('files')as File[]);
  if(path==='/ocr/retry'&&method==='POST')return retryUnconfirmed();
  if(path.startsWith('/jobs/'))return job(path.slice(6));
@@ -17,10 +18,10 @@ export async function api(path:string,method='GET',body:any=undefined):Promise<a
  if(path==='/shortcuts/preview')return preview(await readState(),body);
  if(path==='/tickets/status/preview')return setStatuses(await readState(),body.ids,body.state);
  if(path==='/tickets/status'&&method==='POST')return mutate(state=>setStatuses(state,body.ids,body.state));
- const match=path.match(/^\/tickets\/([^/]+)(?:\/(confirm|status))?$/);
+ const match=path.match(/^\/tickets\/([^/]+)(?:\/(confirm|status|character))?$/);
  if(match){const [,id,action]=match;if(method==='GET'){const state=await readState();await primeImages();return effective(find(state,id),state)}
   if(method==='DELETE'&&!action){const names=await mutate((state,images)=>removeTicket(state,images,id));releaseImageUrls(names);return {ok:true}}
-  return mutate(state=>{if(action==='confirm')confirm(state,id,body);else if(action==='status')setStatus(state,id,body);else if(method==='PUT')editTicket(state,id,body);else throw Error('この操作には対応していません');return {ok:true}});
+  return mutate(state=>{if(action==='confirm')confirm(state,id,body);else if(action==='status')setStatus(state,id,body);else if(action==='character'&&method==='PUT')setTicketCharacter(state,id,body.character);else if(method==='PUT')editTicket(state,id,body);else throw Error('この操作には対応していません');return {ok:true}});
  }
  throw Error('この操作には対応していません');
 }

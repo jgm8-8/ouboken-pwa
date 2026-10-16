@@ -6,7 +6,7 @@ import {schema,setStatus,effective,editTicket,applyRecognizedCode} from '../src/
 import {logicalPlan,recordExport} from '../src/export';
 import {dataProblems,deleteAppCaches} from '../src/storage-health';
 import {cacheHealth,prepareCache} from '../scripts/cache-runtime.mjs';
-function ticket(id:string,code='00ABC12345'):RawTicket{return {id,hash:'a'.repeat(64),filename:id+'.jpg',image:id+'.jpg',crop:id+'.jpg',code,code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'ready',answers:{},approved:1,character:'',note:'',created:'2026-10-05',payload:null,history:[]}}
+function ticket(id:string,code='00ABC12345'):RawTicket{return {id,hash:'a'.repeat(64),filename:id+'.jpg',image:id+'.jpg',crop:id+'.jpg',code,code2:schema.code2,qr:'',ocr:{candidates:[],lines:[]},state:'ready',answers:{},approved:1,character:schema.characters[0],note:'',created:'2026-10-05',payload:null,history:[]}}
 test('記録済みから戻すと記録時の回答を編集でき、履歴は残る',()=>{
  const s=emptyState(),t=ticket('one');s.tickets=[t];s.survey={answers:{c_q29:'記録時の回答'},character:schema.characters[0]};
  t.payload={profile:{},answers:{c_q29:'記録時の回答'},character:schema.characters[0],code:t.code,code2:t.code2};t.state='done';s.survey.answers!.c_q29='変更後の共通文';

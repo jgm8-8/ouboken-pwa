@@ -1,5 +1,5 @@
 export type Answers=Record<string,string|string[]>;
-export type Payload={profile:Record<string,string>,answers:Answers,character:string,code:string,code2:string};
+export type Payload={profile:Record<string,string>,answers:Answers,character:string,code:string,code2:string,codes_only?:boolean};
 export type History={state:string,note:string,created:string,snapshot:Payload|null};
 export type RawTicket={id:string,hash:string,filename:string,image:string,crop:string,thumbnail?:string,code:string,code2:string,qr:string,ocr:{candidates:{text:string,confidence:number,box:number[][]}[],lines:string[]},state:string,answers:Answers,approved:number,character:string,note:string,created:string,payload:Payload|null,history:History[],ocr_pending?:boolean};
 export type State={version:1,profile:Record<string,string>,survey:{answers?:Answers,character?:string,notes?:Record<string,string>},tickets:RawTicket[]};
