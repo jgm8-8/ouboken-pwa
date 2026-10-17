@@ -35,7 +35,11 @@ function App(){
  const navigate=(target:string)=>run(async()=>{await flush();setOpen('');setSelecting(false);setSelected([]);if(target==='list'){setSearch('');setFilter('')}setPage(target);window.scrollTo({top:0,behavior:'instant'})});
  useEffect(()=>{if(page==='home'&&focusCharacter){document.getElementById('common-character')?.focus();setFocusCharacter(false)}},[page,focusCharacter]);
  useEffect(()=>{if(!job)return;const timer=setInterval(async()=>{try{const r=await api('/jobs/'+job.id);setJob(r.status==='done'?null:{id:job.id,done:r.done,total:r.total});await refresh();if(r.status==='done'){setDuplicates(r.results.filter((v:any)=>v.duplicate));if(r.errors.length)setError(r.errors.map((e:{filename:string,message:string})=>e.filename+': '+e.message).join(' / '))}}catch(e){setError((e as Error).message);setJob(null)}},1500);return()=>clearInterval(timer)},[job?.id]);
- const upload=(files:FileList|null)=>{if(!files?.length)return;void run(async()=>{await flush();const data=new FormData();Array.from(files).forEach(f=>data.append('files',f));const r=await api('/upload','POST',data);setDuplicates([]);setJob({id:r.id,done:0,total:files.length})})};
+ const upload=(selection:FileList|null)=>{
+  // FileList changes when the picker is reset; retain the files before awaiting saves.
+  const files=Array.from(selection??[]);if(!files.length)return;
+  void run(async()=>{await flush();const data=new FormData();files.forEach(f=>data.append('files',f));const r=await api('/upload','POST',data);setDuplicates([]);setJob({id:r.id,done:0,total:files.length})});
+ };
  const startReview=(ids?:string[])=>run(async()=>{await flush();setReviewIds(ids||tickets.filter(t=>!t.approved&&!['done','unknown'].includes(t.state)).map(t=>t.id));setPage('review');window.scrollTo({top:0,behavior:'instant'})});
  const startExport=(ids=tickets.map(t=>t.id))=>run(async()=>{await flush();setExportIds(ids)});
  const copy=async(text:string)=>{try{await navigator.clipboard.writeText(text);notify('コピーしました')}catch{setError('コピーできませんでした。文字を長押ししてコピーしてください。')}};

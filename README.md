@@ -1,4 +1,4 @@
-# Ouboken PWA 1.2.0
+# Ouboken PWA 1.2.1
 
 応募券のコード①・②を順番にコピーするためのiPhone用ツールです。公開URL：[Ouboken](https://jgm8-8.github.io/ouboken-pwa/)。写真追加・OCR・保存・ZIP出力は端末内で処理します。コードの管理・ZIP出力にPC・APIキーは不要です。応募サイトの自動入力・送信は行いません。
 
